@@ -1,0 +1,401 @@
+/* Core Design System & Theme Variable Definitions */
+:root {
+  --primary: #000000;
+  --secondary: #FFFFFF;
+  --accent: #A7CBE5;
+  --accent-dark: #8cb6d6;
+  --accent-light: #f0f6fa;
+  
+  /* Neutral scale */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+  
+  /* Statuses */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', 'Inter', system-ui, sans-serif;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+}
+
+/* Global Reset & Base Styling */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--slate-50);
+  font-family: var(--font-sans);
+  color: var(--slate-900);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Scrollbar for modern browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--slate-100);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--slate-300);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--slate-400);
+}
+
+/* App Layout Root */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Header & Navigation Styles */
+.app-header {
+  background-color: var(--secondary);
+  border-bottom: 1px solid var(--slate-200);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 6px;
+  background-color: var(--slate-100);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.nav-tab {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--slate-600);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.nav-tab:hover {
+  color: var(--primary);
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.nav-tab.active {
+  background-color: var(--secondary);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Main Content Wrapper */
+.app-main {
+  flex: 1;
+  width: 100%;
+  padding-bottom: 60px;
+}
+
+/* Footer layout */
+.app-footer {
+  background-color: var(--primary);
+  color: var(--slate-400);
+  font-size: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--slate-800);
+}
+
+.footer-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* Typography styles */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  color: var(--primary);
+}
+
+/* Form Styles Override & Focus rings */
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(167, 203, 229, 0.5);
+}
+
+/* Standard Button Hover Effects */
+button {
+  transition: all var(--transition-fast);
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0px);
+}
+
+/* Custom interactive animations */
+@keyframes ping {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  70%, 100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-overlay {
+  animation: fadeIn 0.25s ease-out;
+}
+
+.modal-container {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.draft-row {
+  transition: background-color var(--transition-fast);
+}
+
+.draft-row:hover {
+  background-color: var(--slate-50) !important;
+}
+
+/* Responsive Overrides */
+@media (max-width: 768px) {
+  .header-container {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  .livingstone-logo-horizontal {
+    justify-content: center;
+  }
+  .nav-tabs {
+    justify-content: center;
+    width: 100%;
+  }
+  .footer-container {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+/* Print Layout Media Overrides */
+@media print {
+  body, html {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12px !important;
+    font-family: 'Courier New', Courier, monospace, Arial, sans-serif !important;
+  }
+
+  /* Hide Web UI chrome */
+  .app-header, 
+  .app-footer, 
+  .no-print, 
+  .nav-tabs,
+  button, 
+  .addRowBtn,
+  .actionsBar, 
+  .namingCard {
+    display: none !important;
+  }
+
+  #portal-root {
+    min-height: auto !important;
+    background-color: #ffffff !important;
+  }
+
+  .form-page-layout {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .form-wrapper-box {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Re-format header to mimic paper documents */
+  .printable-form-header {
+    border-bottom: 3px double #000000 !important;
+    padding-bottom: 12px !important;
+    margin-bottom: 20px !important;
+    text-align: center !important;
+  }
+
+  .collegeName {
+    font-family: Arial, sans-serif !important;
+    font-size: 24px !important;
+    font-weight: bold !important;
+  }
+
+  .formTitle {
+    font-family: Arial, sans-serif !important;
+    font-size: 13px !important;
+    font-weight: bold !important;
+  }
+
+  /* Inputs to borderless labels */
+  input[type="text"], 
+  input[type="date"], 
+  input[type="time"],
+  select {
+    border: none !important;
+    border-bottom: 1px solid #000000 !important;
+    border-radius: 0 !important;
+    padding: 2px !important;
+    background: transparent !important;
+    font-weight: bold !important;
+    font-family: sans-serif !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+  }
+
+  input[disabled] {
+    background: transparent !important;
+    color: #000000 !important;
+    border-bottom: 1px solid #000000 !important;
+  }
+
+  /* Table styling */
+  .table-card-box {
+    border: 2px solid #000000 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin-bottom: 15px !important;
+  }
+
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th {
+    border-bottom: 2px solid #000000 !important;
+    border-right: 1px solid #000000 !important;
+    background-color: transparent !important;
+    color: #000000 !important;
+    font-weight: bold !important;
+    font-size: 11px !important;
+    padding: 6px !important;
+  }
+
+  th:last-child {
+    border-right: none !important;
+  }
+
+  td {
+    border-bottom: 1px solid #000000 !important;
+    border-right: 1px solid #000000 !important;
+    padding: 6px !important;
+  }
+
+  td:last-child {
+    border-right: none !important;
+  }
+
+  td input {
+    border: none !important;
+    border-bottom: none !important;
+    padding: 2px !important;
+    font-family: monospace !important;
+  }
+
+  /* Total Bar reformat */
+  .totalBar {
+    background-color: transparent !important;
+    border: 2px solid #000000 !important;
+    border-radius: 0 !important;
+    color: #000000 !important;
+    padding: 8px 12px !important;
+    font-weight: bold !important;
+    margin-bottom: 20px !important;
+  }
+
+  .totalValue {
+    color: #000000 !important;
+    font-size: 14px !important;
+  }
+
+  /* Show Signatures Section */
+  .print-only-signatures {
+    display: block !important;
+    margin-top: 40px !important;
+    page-break-inside: avoid !important;
+  }
+}
