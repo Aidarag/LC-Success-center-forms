@@ -41,10 +41,19 @@ const monthYearStr = (dateStr) => {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
 };
 
+const isSummerDate = (dateStr) => {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return false;
+  const m = d.getMonth(); // 0-indexed: 4 is May, 5 is June, 6 is July, 7 is August
+  return m >= 4 && m <= 7;
+};
+
 // ─── ID factories ─────────────────────────────────────────────────────────────
 let _rid = 0;
 const mkRow = () => ({
   id: `r${++_rid}-${Date.now()}`,
+  date: '',
   timeIn1: '', timeOut1: '',
   timeIn2: '', timeOut2: '',
   totalHours: 0,
@@ -137,7 +146,9 @@ export default function TimesheetForm() {
   const handleAddRow = (weekId) => {
     const updated = weeks.map(w => {
       if (w.id !== weekId || w.entries.length >= 7) return w;
-      return { ...w, entries: [...w.entries, mkRow()] };
+      const nextIdx = w.entries.length;
+      const defaultDate = w.startDate ? addDays(w.startDate, nextIdx) : '';
+      return { ...w, entries: [...w.entries, { ...mkRow(), date: defaultDate }] };
     });
     setWeeks(updated);
     persist({ weeks: updated });
@@ -154,7 +165,17 @@ export default function TimesheetForm() {
 
   // ── Field changes ───────────────────────────────────────────────────────────
   const handleWeekStartDate = (weekId, value) => {
-    const updated = weeks.map(w => w.id === weekId ? { ...w, startDate: value } : w);
+    const updated = weeks.map(w => {
+      if (w.id !== weekId) return w;
+      return {
+        ...w,
+        startDate: value,
+        entries: w.entries.map((e, idx) => ({
+          ...e,
+          date: value ? addDays(value, idx) : e.date
+        }))
+      };
+    });
     setWeeks(updated);
     persist({ weeks: updated });
   };
@@ -188,16 +209,70 @@ export default function TimesheetForm() {
     weeks.forEach(w => {
       if (!w.startDate) rowErrs.push(`Week ${w.weekNum}: Week Start Date is required.`);
       w.entries.forEach((e, i) => {
-        const lbl = `Week ${w.weekNum} Row ${i + 1}`;
-        if ((e.timeIn1 && !e.timeOut1) || (!e.timeIn1 && e.timeOut1))
-          rowErrs.push(`${lbl}: Shift 1 needs both In and Out.`);
-        else if (e.timeIn1 && e.timeOut1 && timeToDecimal(e.timeOut1) <= timeToDecimal(e.timeIn1))
-          rowErrs.push(`${lbl}: Shift 1 Out must be after Shift 1 In.`);
+        const lbl = `Week ${w.weekNum} Work Entry ${i + 1}`;
+        
+        // Only validate if any time, student info, or text is typed in this row
+        const hasData = e.date || e.timeIn1 || e.timeOut1 || e.timeIn2 || e.timeOut2 || e.studentNameId || e.subject || e.notes;
+        
+        if (hasData) {
+          if (!e.date) {
+            rowErrs.push(`${lbl}: Please select a date.`);
+          }
 
-        if ((e.timeIn2 && !e.timeOut2) || (!e.timeIn2 && e.timeOut2))
-          rowErrs.push(`${lbl}: Shift 2 needs both In and Out.`);
-        else if (e.timeIn2 && e.timeOut2 && timeToDecimal(e.timeOut2) <= timeToDecimal(e.timeIn2))
-          rowErrs.push(`${lbl}: Shift 2 Out must be after Shift 2 In.`);
+          // Shift 1
+          if (e.timeIn1 || e.timeOut1) {
+            if (!e.timeIn1) {
+              rowErrs.push(`${lbl}: Start time is required.`);
+            } else if (!e.timeOut1) {
+              rowErrs.push(`${lbl}: End time is required.`);
+            } else {
+              const in1 = timeToDecimal(e.timeIn1);
+              const out1 = timeToDecimal(e.timeOut1);
+              if (out1 <= in1) {
+                rowErrs.push(`${lbl}: End time must be after start time.`);
+              }
+              if (e.date) {
+                const isSummer = isSummerDate(e.date);
+                if (isSummer) {
+                  if (e.timeIn1 < '09:00' || e.timeOut1 > '17:00') {
+                    rowErrs.push(`${lbl}: Summer hours must be between 9:00 AM and 5:00 PM.`);
+                  }
+                } else {
+                  if (e.timeIn1 < '08:00' || e.timeOut1 > '20:00') {
+                    rowErrs.push(`${lbl}: Fall/Spring hours must be between 8:00 AM and 8:00 PM.`);
+                  }
+                }
+              }
+            }
+          }
+
+          // Shift 2
+          if (e.timeIn2 || e.timeOut2) {
+            if (!e.timeIn2) {
+              rowErrs.push(`${lbl}: Start time is required.`);
+            } else if (!e.timeOut2) {
+              rowErrs.push(`${lbl}: End time is required.`);
+            } else {
+              const in2 = timeToDecimal(e.timeIn2);
+              const out2 = timeToDecimal(e.timeOut2);
+              if (out2 <= in2) {
+                rowErrs.push(`${lbl}: End time must be after start time.`);
+              }
+              if (e.date) {
+                const isSummer = isSummerDate(e.date);
+                if (isSummer) {
+                  if (e.timeIn2 < '09:00' || e.timeOut2 > '17:00') {
+                    rowErrs.push(`${lbl}: Summer hours must be between 9:00 AM and 5:00 PM.`);
+                  }
+                } else {
+                  if (e.timeIn2 < '08:00' || e.timeOut2 > '20:00') {
+                    rowErrs.push(`${lbl}: Fall/Spring hours must be between 8:00 AM and 8:00 PM.`);
+                  }
+                }
+              }
+            }
+          }
+        }
       });
     });
 
@@ -311,14 +386,17 @@ export default function TimesheetForm() {
             </thead>
             <tbody>
               {week.entries.map((entry, rowIdx) => {
-                const rowDate = week.startDate ? addDays(week.startDate, rowIdx) : '';
                 return (
                   <tr key={entry.id} style={S.tbodyRow}>
-                    {/* Auto-computed date — read only */}
+                    {/* Editable Date */}
                     <td style={S.td}>
-                      <div style={rowDate ? S.dateChip : S.datePlaceholder}>
-                        {rowDate ? displayDate(rowDate) : '—'}
-                      </div>
+                      <input
+                        type="date"
+                        value={entry.date || ''}
+                        onChange={e => handleEntryChange(week.id, entry.id, 'date', e.target.value)}
+                        style={S.dateInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} Date`}
+                      />
                     </td>
                     <td style={S.td}>
                       <input type="time" value={entry.timeIn1}
@@ -394,7 +472,7 @@ export default function TimesheetForm() {
           </table>
         </div>
 
-        {/* Week footer: Add Row + weekly total */}
+        {/* Week footer: Add Work Entry + weekly total */}
         <div style={S.weekFooter}>
           <button
             type="button"
@@ -403,7 +481,7 @@ export default function TimesheetForm() {
             style={atMax ? S.addRowBtnDisabled : S.addRowBtn}
           >
             <Plus size={13} style={{ marginRight: 4 }} />
-            {atMax ? 'Max 7 Rows Reached' : '+ Add Row'}
+            {atMax ? 'Max 7 Work Entries Reached' : '+ Add Work Entry'}
           </button>
           <div style={S.weekTotal}>
             <span style={S.weekTotalLabel}>Week {week.weekNum} Total:</span>
@@ -659,9 +737,10 @@ const S = {
   },
   formGroup: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: {
-    fontSize: 11, fontWeight: 600,
+    fontSize: 13, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.06em',
-    color: '#374151', fontFamily: "'Inter', sans-serif"
+    color: '#0f0f0f', fontFamily: "'Inter', sans-serif",
+    marginBottom: 6
   },
   metaInput: {
     padding: '10px 12px',
@@ -702,7 +781,7 @@ const S = {
   },
   startDateWrap: { display: 'flex', alignItems: 'center', gap: 8 },
   startDateLabel: {
-    color: '#94a3b8', fontSize: 10, fontWeight: 600,
+    color: '#ffffff', fontSize: 12, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap'
   },
   startDateInput: {
@@ -758,6 +837,13 @@ const S = {
   datePlaceholder: {
     padding: '5px 9px',
     color: '#9ca3af', fontSize: 13
+  },
+  dateInput: {
+    width: '100%', minWidth: 125, padding: '7px 8px',
+    border: '1px solid #d1d5db', borderRadius: 4,
+    fontSize: 12, outline: 'none',
+    fontFamily: "'Inter', sans-serif", color: '#111827',
+    backgroundColor: '#fff'
   },
 
   timeInput: {
@@ -886,9 +972,9 @@ const S = {
     borderRadius: 6, padding: 16
   },
   sigDateLabel: {
-    display: 'block', fontSize: 10, fontWeight: 600,
+    display: 'block', fontSize: 13, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.06em',
-    color: '#374151', marginBottom: 5,
+    color: '#0f0f0f', marginBottom: 6,
     fontFamily: "'Inter', sans-serif"
   },
   sigDateInput: {
@@ -906,9 +992,9 @@ const S = {
     marginBottom: 22
   },
   namingLabel: {
-    display: 'block', fontSize: 11, fontWeight: 600,
+    display: 'block', fontSize: 13, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.06em',
-    color: '#374151', marginBottom: 8,
+    color: '#0f0f0f', marginBottom: 6,
     fontFamily: "'Inter', sans-serif"
   },
   namingRow: { display: 'flex', gap: 8 },

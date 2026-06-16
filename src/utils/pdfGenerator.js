@@ -68,7 +68,7 @@ const tableHeader = `
 
 const buildRows = (entries, startDate) =>
   entries.map((e, idx) => {
-    const rowDate = startDate ? addDays(startDate, idx) : '';
+    const rowDate = e.date || (startDate ? addDays(startDate, idx) : '');
     return `
       <tr style="border-bottom:1px solid #000; font-size:10.5px; vertical-align:top;">
         <td style="padding:5px; border-right:1px solid #000; font-weight:bold; white-space:nowrap;">
