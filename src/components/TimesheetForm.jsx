@@ -589,311 +589,394 @@ export default function TimesheetForm() {
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+// LC Design System palette:
+//   #0f0f0f  deep black (seal ring)
+//   #7da7c4  Livingstone blue (LC monogram)
+//   #ddeaf3  blue tint (light wells)
+//   #f5f6f8  page background
+//   #ffffff  card surface
+//   #dde1e7  rule / border
+//   #111827  primary text
+//   #374151  label text
+//   #64748b  muted text
 
 const S = {
+  // ── Page wrapper ─────────────────────────────────────────────────────────
   page: {
     maxWidth: 1380,
     margin: '0 auto',
-    padding: '24px 16px 60px'
+    padding: '28px 24px 64px'
   },
-  toast: {
-    position: 'fixed', top: 20, right: 20,
-    padding: '12px 22px',
-    color: '#fff', borderRadius: 8,
-    fontSize: 13, fontWeight: 600,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-    zIndex: 1001,
-    animation: 'slideIn 0.3s ease-out'
-  },
-  officialHeader: {
-    textAlign: 'center',
-    borderBottom: '3px double #000',
-    paddingBottom: 14,
-    marginBottom: 22
-  },
-  collegeName: {
-    fontFamily: "'Outfit', sans-serif",
-    fontSize: 28, fontWeight: 800,
-    textTransform: 'uppercase', letterSpacing: 1,
-    color: '#000', margin: 0
-  },
-  formTitle: {
-    fontFamily: "'Inter', sans-serif",
-    fontSize: 14, fontWeight: 600,
-    textTransform: 'uppercase', letterSpacing: 2,
-    color: '#333', marginTop: 4, margin: 0
-  },
-  subtext: { fontSize: 12, color: '#555', marginTop: 4 },
 
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    border: '1px solid #cbd5e1',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-    padding: 24
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  toast: {
+    position: 'fixed', top: 18, right: 18,
+    padding: '11px 20px',
+    color: '#fff', borderRadius: 6,
+    fontSize: 13, fontWeight: 600,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.20)',
+    zIndex: 1001,
+    animation: 'slideIn 0.25s ease-out',
+    fontFamily: "'Inter', sans-serif",
+    letterSpacing: '0.01em'
   },
+
+  // ── Print-only form header ─────────────────────────────────────────────────
+  officialHeader: { display: 'none' },
+  collegeName: { margin: 0, fontFamily: "'Inter', sans-serif", fontSize: 22, fontWeight: 700, textTransform: 'uppercase' },
+  formTitle:   { margin: '4px 0 0', fontSize: 13, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1.5 },
+  subtext:     { fontSize: 11, color: '#555', marginTop: 3 },
+
+  // ── Main card ─────────────────────────────────────────────────────────────
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    border: '1px solid #dde1e7',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    padding: '28px 28px 24px'
+  },
+
+  // ── Error banner ──────────────────────────────────────────────────────────
   errorBanner: {
     backgroundColor: '#fef2f2',
     border: '1px solid #fca5a5',
-    color: '#b91c1c',
-    padding: '12px 16px', borderRadius: 8,
-    fontSize: 13, marginBottom: 20
+    borderLeft: '3px solid #dc2626',
+    color: '#991b1b',
+    padding: '12px 16px', borderRadius: 6,
+    fontSize: 13, marginBottom: 22,
+    fontFamily: "'Inter', sans-serif"
   },
 
+  // ── Metadata row ──────────────────────────────────────────────────────────
   metaRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 16, marginBottom: 24
+    gap: 18, marginBottom: 28,
+    padding: '20px',
+    backgroundColor: '#f5f6f8',
+    border: '1px solid #dde1e7',
+    borderRadius: 6
   },
-  formGroup: { display: 'flex', flexDirection: 'column', gap: 6 },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: {
-    fontSize: 11, fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: 0.5, color: '#475569'
+    fontSize: 11, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+    color: '#374151', fontFamily: "'Inter', sans-serif"
   },
   metaInput: {
-    padding: '10px 12px', border: '1px solid #cbd5e1',
-    borderRadius: 6, fontSize: 13,
-    fontFamily: "'Inter', sans-serif", outline: 'none', color: '#000'
+    padding: '10px 12px',
+    border: '1px solid #d1d5db',
+    borderRadius: 5, fontSize: 13,
+    fontFamily: "'Inter', sans-serif",
+    color: '#111827', backgroundColor: '#fff',
+    outline: 'none'
   },
   metaInputDisabled: {
-    padding: '10px 12px', border: '1px solid #cbd5e1',
-    borderRadius: 6, fontSize: 13,
+    padding: '10px 12px',
+    border: '1px solid #e5e7eb',
+    borderRadius: 5, fontSize: 13,
     fontFamily: "'Inter', sans-serif",
-    backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed'
+    backgroundColor: '#f9fafb', color: '#6b7280', cursor: 'not-allowed'
   },
 
-  weeksWrap: { display: 'flex', flexDirection: 'column', gap: 24 },
+  // ── Weeks container ───────────────────────────────────────────────────────
+  weeksWrap: { display: 'flex', flexDirection: 'column', gap: 20 },
 
+  // ── Week card ─────────────────────────────────────────────────────────────
   weekCard: {
-    border: '1px solid #cbd5e1',
-    borderRadius: 10,
-    overflow: 'hidden'
+    border: '1px solid #dde1e7',
+    borderRadius: 7,
+    overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
   },
   weekHeader: {
-    backgroundColor: '#000',
+    backgroundColor: '#0f0f0f',
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '10px 16px'
+    padding: '11px 18px'
   },
-  weekHeaderLeft: { display: 'flex', alignItems: 'center', gap: 16 },
+  weekHeaderLeft: { display: 'flex', alignItems: 'center', gap: 18 },
   weekBadge: {
-    color: '#fff', fontWeight: 800, fontSize: 12,
-    letterSpacing: 1, textTransform: 'uppercase'
+    color: '#7da7c4', fontWeight: 700, fontSize: 12,
+    letterSpacing: '0.1em', textTransform: 'uppercase',
+    fontFamily: "'Inter', sans-serif"
   },
   startDateWrap: { display: 'flex', alignItems: 'center', gap: 8 },
   startDateLabel: {
-    color: '#a0aec0', fontSize: 11, fontWeight: 600,
-    textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap'
+    color: '#94a3b8', fontSize: 10, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap'
   },
   startDateInput: {
-    padding: '5px 8px', border: '1px solid #4a5568',
-    borderRadius: 5, fontSize: 12, backgroundColor: '#1a1a1a',
-    color: '#fff', outline: 'none',
+    padding: '5px 9px',
+    border: '1px solid #2d3748',
+    borderRadius: 4, fontSize: 12,
+    backgroundColor: '#1a1a1a',
+    color: '#e2e8f0', outline: 'none',
+    fontFamily: "'Inter', sans-serif",
     colorScheme: 'dark'
   },
   removeWeekBtn: {
     display: 'flex', alignItems: 'center',
-    padding: '5px 10px', borderRadius: 5,
-    backgroundColor: 'transparent', border: '1px solid #4a5568',
-    color: '#a0aec0', cursor: 'pointer', fontSize: 11, fontWeight: 600
+    padding: '5px 11px', borderRadius: 4,
+    backgroundColor: 'transparent',
+    border: '1px solid #374151',
+    color: '#9ca3af', cursor: 'pointer',
+    fontSize: 11, fontWeight: 500,
+    fontFamily: "'Inter', sans-serif"
   },
 
+  // ── Table ─────────────────────────────────────────────────────────────────
   tableScroll: { overflowX: 'auto' },
   table: {
     width: '100%', borderCollapse: 'collapse', textAlign: 'left',
     minWidth: 1100
   },
-  thead: { backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' },
-  th: {
-    padding: '10px 12px', fontSize: 10,
-    fontWeight: 700, textTransform: 'uppercase',
-    color: '#475569', letterSpacing: 0.4
+  thead: {
+    backgroundColor: '#f9fafb',
+    borderBottom: '1px solid #dde1e7'
   },
-  tbodyRow: { borderBottom: '1px solid #e2e8f0' },
-  td: { padding: '8px 10px', verticalAlign: 'top' },
-
-  dateChip: {
-    padding: '6px 8px',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 5, fontSize: 12,
-    fontWeight: 600, color: '#0f172a',
+  th: {
+    padding: '9px 11px', fontSize: 10,
+    fontWeight: 600, textTransform: 'uppercase',
+    color: '#374151', letterSpacing: '0.06em',
+    fontFamily: "'Inter', sans-serif",
     whiteSpace: 'nowrap'
   },
+  tbodyRow: { borderBottom: '1px solid #e5e7eb' },
+  td: { padding: '7px 10px', verticalAlign: 'top' },
+
+  dateChip: {
+    display: 'inline-block',
+    padding: '5px 9px',
+    backgroundColor: '#ddeaf3',
+    border: '1px solid #b8d4e8',
+    borderRadius: 4, fontSize: 12,
+    fontWeight: 600, color: '#0f4c75',
+    whiteSpace: 'nowrap',
+    fontFamily: "'Inter', sans-serif",
+    letterSpacing: '0.02em'
+  },
   datePlaceholder: {
-    padding: '6px 8px',
-    color: '#94a3b8', fontSize: 13
+    padding: '5px 9px',
+    color: '#9ca3af', fontSize: 13
   },
 
   timeInput: {
     width: '100%', padding: '7px 8px',
-    border: '1px solid #cbd5e1', borderRadius: 5,
+    border: '1px solid #d1d5db', borderRadius: 4,
     fontSize: 12, outline: 'none',
-    fontFamily: "'Inter', sans-serif", color: '#000',
+    fontFamily: "'Inter', sans-serif", color: '#111827',
     backgroundColor: '#fff'
   },
   cellTextInput: {
     width: '100%', padding: '7px 8px',
-    border: '1px solid #cbd5e1', borderRadius: 5,
+    border: '1px solid #d1d5db', borderRadius: 4,
     fontSize: 12, outline: 'none',
-    fontFamily: "'Inter', sans-serif", color: '#000',
+    fontFamily: "'Inter', sans-serif", color: '#111827',
     backgroundColor: '#fff'
   },
   subjectArea: {
     width: '100%', padding: '7px 8px',
-    border: '1px solid #cbd5e1', borderRadius: 5,
+    border: '1px solid #d1d5db', borderRadius: 4,
     fontSize: 12, outline: 'none', resize: 'vertical',
-    fontFamily: "'Inter', sans-serif", color: '#000',
-    backgroundColor: '#fff', lineHeight: 1.45,
-    minHeight: 58
+    fontFamily: "'Inter', sans-serif", color: '#111827',
+    backgroundColor: '#fff', lineHeight: 1.5,
+    minHeight: 60
   },
   notesArea: {
     width: '100%', padding: '7px 8px',
-    border: '1px solid #cbd5e1', borderRadius: 5,
+    border: '1px solid #d1d5db', borderRadius: 4,
     fontSize: 12, outline: 'none', resize: 'vertical',
-    fontFamily: "'Inter', sans-serif", color: '#000',
-    backgroundColor: '#fff', lineHeight: 1.45,
-    minHeight: 96
+    fontFamily: "'Inter', sans-serif", color: '#111827',
+    backgroundColor: '#fff', lineHeight: 1.5,
+    minHeight: 100
   },
   removeRowBtn: {
     padding: '4px 6px', borderRadius: 4,
-    backgroundColor: '#fff', border: '1px solid #fca5a5',
-    color: '#ef4444', cursor: 'pointer',
+    backgroundColor: '#fff',
+    border: '1px solid #fca5a5',
+    color: '#dc2626', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center'
   },
 
+  // ── Week footer ───────────────────────────────────────────────────────────
   weekFooter: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '10px 16px',
-    backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0'
+    padding: '10px 18px',
+    backgroundColor: '#f9fafb',
+    borderTop: '1px solid #dde1e7'
   },
   addRowBtn: {
     display: 'flex', alignItems: 'center',
     padding: '7px 14px',
-    backgroundColor: '#fff', border: '1px solid #000',
-    borderRadius: 6, fontSize: 12, fontWeight: 600,
-    color: '#000', cursor: 'pointer'
+    backgroundColor: '#fff',
+    border: '1px solid #7da7c4',
+    borderRadius: 5, fontSize: 12, fontWeight: 600,
+    color: '#0f4c75', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
   addRowBtnDisabled: {
     display: 'flex', alignItems: 'center',
     padding: '7px 14px',
-    backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
-    borderRadius: 6, fontSize: 12, fontWeight: 600,
-    color: '#94a3b8', cursor: 'not-allowed'
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    borderRadius: 5, fontSize: 12, fontWeight: 500,
+    color: '#9ca3af', cursor: 'not-allowed',
+    fontFamily: "'Inter', sans-serif"
   },
   weekTotal: { display: 'flex', alignItems: 'center', gap: 8 },
-  weekTotalLabel: { fontSize: 12, fontWeight: 600, color: '#475569' },
+  weekTotalLabel: {
+    fontSize: 12, fontWeight: 500,
+    color: '#6b7280', fontFamily: "'Inter', sans-serif"
+  },
   weekTotalVal: {
-    fontSize: 15, fontWeight: 800, color: '#000',
-    fontFamily: "'Outfit', sans-serif"
+    fontSize: 16, fontWeight: 700,
+    color: '#0f0f0f', fontFamily: "'Inter', sans-serif"
   },
 
-  addWeekRow: { margin: '16px 0', display: 'flex' },
+  // ── Add Week ─────────────────────────────────────────────────────────────
+  addWeekRow: { margin: '18px 0', display: 'flex' },
   addWeekBtn: {
     display: 'flex', alignItems: 'center',
     padding: '9px 18px',
-    backgroundColor: '#000', border: 'none',
-    borderRadius: 8, fontSize: 13, fontWeight: 600,
-    color: '#fff', cursor: 'pointer'
+    backgroundColor: '#0f0f0f',
+    border: '1px solid #0f0f0f',
+    borderRadius: 6, fontSize: 13, fontWeight: 600,
+    color: '#fff', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
 
+  // ── Period total bar ──────────────────────────────────────────────────────
   periodTotal: {
-    backgroundColor: '#000', color: '#fff',
-    borderRadius: 8, padding: '14px 20px',
+    backgroundColor: '#0f0f0f',
+    borderRadius: 6,
+    padding: '16px 22px',
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 24
+    marginBottom: 26,
+    borderLeft: '4px solid #7da7c4'
   },
-  totalLabel: { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 },
+  totalLabel: {
+    fontSize: 11, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+    color: '#94a3b8', fontFamily: "'Inter', sans-serif"
+  },
   totalValue: {
-    fontFamily: "'Outfit', sans-serif",
-    fontSize: 20, fontWeight: 800, color: '#A7CBE5'
+    fontSize: 22, fontWeight: 700,
+    color: '#7da7c4', fontFamily: "'Inter', sans-serif",
+    letterSpacing: '-0.02em'
   },
 
+  // ── Signature section ─────────────────────────────────────────────────────
   sigSection: {
-    border: '1px solid #cbd5e1', borderRadius: 8,
-    padding: 16, marginBottom: 24, backgroundColor: '#fafafa'
+    border: '1px solid #dde1e7',
+    borderRadius: 6, padding: '18px 20px',
+    marginBottom: 22, backgroundColor: '#f9fafb'
   },
   sigSectionHeader: {
-    display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12
+    display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14
   },
   sigSectionTitle: {
-    fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: 0.5, color: '#000'
+    fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.06em', color: '#111827',
+    fontFamily: "'Inter', sans-serif"
   },
-  sigSectionHint: { fontSize: 11, color: '#64748b' },
+  sigSectionHint: { fontSize: 11, color: '#6b7280', fontFamily: "'Inter', sans-serif" },
   sigCard: {
     backgroundColor: '#fff',
-    border: '1px solid #e2e8f0', borderRadius: 8, padding: 14
+    border: '1px solid #e5e7eb',
+    borderRadius: 6, padding: 16
   },
   sigDateLabel: {
-    display: 'block', fontSize: 10, fontWeight: 700,
-    textTransform: 'uppercase', color: '#64748b', marginBottom: 4
+    display: 'block', fontSize: 10, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+    color: '#374151', marginBottom: 5,
+    fontFamily: "'Inter', sans-serif"
   },
   sigDateInput: {
-    padding: '8px 10px', border: '1px solid #cbd5e1',
-    borderRadius: 6, fontSize: 12,
-    fontFamily: "'Inter', sans-serif",
-    color: '#000', outline: 'none', maxWidth: 180
+    padding: '8px 10px',
+    border: '1px solid #d1d5db', borderRadius: 5,
+    fontSize: 12, fontFamily: "'Inter', sans-serif",
+    color: '#111827', outline: 'none', maxWidth: 180
   },
 
+  // ── PDF filename card ─────────────────────────────────────────────────────
   namingCard: {
-    backgroundColor: '#f8fafc', border: '1px solid #e2e8f0',
-    borderRadius: 8, padding: 16, marginBottom: 24
+    backgroundColor: '#f5f6f8',
+    border: '1px solid #dde1e7',
+    borderRadius: 6, padding: '16px 20px',
+    marginBottom: 22
   },
   namingLabel: {
-    display: 'block', fontSize: 11, fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: 0.5,
-    color: '#475569', marginBottom: 6
+    display: 'block', fontSize: 11, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+    color: '#374151', marginBottom: 8,
+    fontFamily: "'Inter', sans-serif"
   },
   namingRow: { display: 'flex', gap: 8 },
   namingInput: {
     flex: 1, padding: '10px 12px',
-    border: '1px solid #cbd5e1', borderRadius: 6,
+    border: '1px solid #d1d5db', borderRadius: 5,
     fontSize: 13, fontFamily: "'Inter', sans-serif",
-    color: '#000', outline: 'none', backgroundColor: '#fff'
+    color: '#111827', outline: 'none', backgroundColor: '#fff'
   },
   resetBtn: {
-    padding: '8px 12px',
-    backgroundColor: '#fff', border: '1px solid #cbd5e1',
-    borderRadius: 6, fontSize: 11, fontWeight: 600,
-    color: '#475569', cursor: 'pointer', whiteSpace: 'nowrap'
+    padding: '9px 14px',
+    backgroundColor: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: 5, fontSize: 11, fontWeight: 600,
+    color: '#374151', cursor: 'pointer', whiteSpace: 'nowrap',
+    fontFamily: "'Inter', sans-serif"
   },
 
+  // ── Actions bar ───────────────────────────────────────────────────────────
   actionsBar: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     flexWrap: 'wrap', gap: 12,
-    borderTop: '1px solid #f1f5f9', paddingTop: 20
+    borderTop: '1px solid #e5e7eb', paddingTop: 20
   },
   clearBtn: {
-    padding: '10px 16px', backgroundColor: '#fff',
-    border: '1px solid #e2e8f0', borderRadius: 8,
-    fontSize: 13, fontWeight: 500, color: '#64748b', cursor: 'pointer'
+    padding: '9px 16px', backgroundColor: '#fff',
+    border: '1px solid #e5e7eb', borderRadius: 5,
+    fontSize: 13, fontWeight: 500,
+    color: '#6b7280', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
   mainActions: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   printBtn: {
     display: 'flex', alignItems: 'center',
-    padding: '10px 16px', backgroundColor: '#fff',
-    border: '1px solid #000', borderRadius: 8,
-    fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer'
+    padding: '10px 16px',
+    backgroundColor: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: 5, fontSize: 13, fontWeight: 600,
+    color: '#374151', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
   downloadBtn: {
     display: 'flex', alignItems: 'center',
-    padding: '10px 16px', backgroundColor: '#fff',
-    border: '1px solid #000', borderRadius: 8,
-    fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer'
+    padding: '10px 16px',
+    backgroundColor: '#fff',
+    border: '1px solid #7da7c4',
+    borderRadius: 5, fontSize: 13, fontWeight: 600,
+    color: '#0f4c75', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
   submitBtn: {
     display: 'flex', alignItems: 'center',
-    padding: '10px 18px', backgroundColor: '#000',
-    border: 'none', borderRadius: 8,
-    fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer'
+    padding: '10px 20px',
+    backgroundColor: '#0f0f0f',
+    border: '1px solid #0f0f0f',
+    borderRadius: 5, fontSize: 13, fontWeight: 600,
+    color: '#fff', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
   },
 
-  // Print-only signature block (hidden until print media query)
+  // ── Print-only signature block ────────────────────────────────────────────
   printSig: { display: 'none', marginTop: 40 },
   printFooterNote: {
-    marginTop: 36,
+    marginTop: 32,
     textAlign: 'center', fontSize: 9,
     borderTop: '1px solid #000', paddingTop: 7,
     textTransform: 'uppercase', color: '#333',
     letterSpacing: 0.5, fontFamily: 'sans-serif'
   }
 };
+
