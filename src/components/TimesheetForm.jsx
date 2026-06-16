@@ -1,822 +1,584 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Printer, Send, Trash2 } from 'lucide-react';
+import { Download, Printer, Send, Plus, X } from 'lucide-react';
 import { saveTimesheetDraft, getTimesheetDraft, clearTimesheetDraft } from '../utils/storage';
 import { generatePDF } from '../utils/pdfGenerator';
 import EmailModal from './EmailModal';
 import SignaturePad from './SignaturePad';
 
-// Helper to convert time strings "HH:MM" to decimal hours
-const timeToDecimal = (timeStr) => {
-  if (!timeStr) return 0;
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return hours + minutes / 60;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const timeToDecimal = (t) => {
+  if (!t) return 0;
+  const [h, m] = t.split(':').map(Number);
+  return h + m / 60;
 };
 
-// Helper to calculate total hours between two "HH:MM" times
-const calculateDiff = (timeIn, timeOut) => {
-  if (!timeIn || !timeOut) return 0;
-  const decIn = timeToDecimal(timeIn);
-  const decOut = timeToDecimal(timeOut);
-  if (decOut <= decIn) return 0;
-  return decOut - decIn;
+const calcDiff = (inT, outT) => {
+  if (!inT || !outT) return 0;
+  const diff = timeToDecimal(outT) - timeToDecimal(inT);
+  return diff > 0 ? diff : 0;
 };
 
-// Helper to format string dates to human Month Year
-const getMonthYearStr = (dateStr) => {
+const addDays = (dateStr, n) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+};
+
+const displayDate = (dateStr) => {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+};
+
+const monthYearStr = (dateStr) => {
   if (!dateStr) return 'Month_Year';
-  const date = new Date(dateStr + 'T00:00:00');
-  if (isNaN(date.getTime())) return 'Month_Year';
-  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return 'Month_Year';
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
 };
 
-const populateSequentialDates = (start) => {
-  if (!start) return { w1: Array(7).fill(''), w2: Array(7).fill('') };
-  const w1 = [];
-  const w2 = [];
-  const base = new Date(start + 'T00:00:00');
-  if (isNaN(base.getTime())) return { w1: Array(7).fill(''), w2: Array(7).fill('') };
-  
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    w1.push(d.toISOString().split('T')[0]);
-  }
-  for (let i = 7; i < 14; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    w2.push(d.toISOString().split('T')[0]);
-  }
-  return { w1, w2 };
-};
-
-const defaultRow = (id, date = '') => ({
-  id,
-  date,
-  timeIn1: '',
-  timeOut1: '',
-  timeIn2: '',
-  timeOut2: '',
+// ─── ID factories ─────────────────────────────────────────────────────────────
+let _rid = 0;
+const mkRow = () => ({
+  id: `r${++_rid}-${Date.now()}`,
+  timeIn1: '', timeOut1: '',
+  timeIn2: '', timeOut2: '',
   totalHours: 0,
-  studentNameId: '',
-  subject: '',
-  notes: ''
+  studentNameId: '', subject: '', notes: ''
 });
 
-export default function TimesheetForm({ onFormSubmitSuccess }) {
-  // Form metadata states
-  const [employeeName, setEmployeeName] = useState('');
-  const [beginningDate, setBeginningDate] = useState('');
-  const [endingDate, setEndingDate] = useState('');
+let _wid = 0;
+const mkWeek = (num) => ({
+  id: `w${++_wid}-${Date.now()}`,
+  weekNum: num,
+  startDate: '',
+  entries: [mkRow()]
+});
 
-  // Weekly entries
-  const [week1Entries, setWeek1Entries] = useState(
-    Array.from({ length: 7 }, (_, i) => defaultRow(`w1-${i}`))
-  );
-  const [week2Entries, setWeek2Entries] = useState(
-    Array.from({ length: 7 }, (_, i) => defaultRow(`w2-${i}`))
-  );
+// ─── Component ────────────────────────────────────────────────────────────────
 
-  // Transient signatures (not saved in localStorage)
+export default function TimesheetForm() {
+  const [employeeName, setEmployeeName]     = useState('');
+  const [weeks, setWeeks]                   = useState([mkWeek(1)]);
+
+  // Signature: session-only, not persisted
   const [employeeSignature, setEmployeeSignature] = useState(null);
-  const [employerSignature, setEmployerSignature] = useState(null);
-  const [payrollSignature, setPayrollSignature] = useState(null);
+  const [employeeSignDate, setEmployeeSignDate]   = useState(
+    new Date().toISOString().split('T')[0]
+  );
 
-  // Dates for signatures
-  const [employeeSignDate, setEmployeeSignDate] = useState(new Date().toISOString().split('T')[0]);
-  const [employerSignDate, setEmployerSignDate] = useState(new Date().toISOString().split('T')[0]);
-  const [payrollSignDate, setPayrollSignDate] = useState(new Date().toISOString().split('T')[0]);
+  // PDF filename
+  const [pdfFileName, setPdfFileName]     = useState('Employee_Timesheet_Month_Year.pdf');
+  const [fileNameEdited, setFileNameEdited] = useState(false);
 
-  // PDF Naming configuration
-  const [pdfFileName, setPdfFileName] = useState('Employee_Timesheet_Month_Year.pdf');
-  const [isFileNameEdited, setIsFileNameEdited] = useState(false);
-
-  // UI status states
-  const [toastMessage, setToastMessage] = useState(null);
-  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  // UI helpers
+  const [toast, setToast]               = useState(null);
+  const [formErrors, setFormErrors]     = useState({});
+  const [emailOpen, setEmailOpen]       = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
-  const [emailBody, setEmailBody] = useState('');
-  const [formErrors, setFormErrors] = useState({});
+  const [emailBody, setEmailBody]       = useState('');
 
-  // Load draft on mount
+  // ── Load draft on mount ─────────────────────────────────────────────────────
   useEffect(() => {
     const draft = getTimesheetDraft();
-    if (draft) {
-      setEmployeeName(draft.employeeName || '');
-      setBeginningDate(draft.beginningDate || '');
-      setEndingDate(draft.endingDate || '');
-      if (draft.week1Entries && draft.week1Entries.length === 7) {
-        setWeek1Entries(draft.week1Entries);
-      }
-      if (draft.week2Entries && draft.week2Entries.length === 7) {
-        setWeek2Entries(draft.week2Entries);
-      }
-      if (draft.employeeSignDate) setEmployeeSignDate(draft.employeeSignDate);
-      if (draft.employerSignDate) setEmployerSignDate(draft.employerSignDate);
-      if (draft.payrollSignDate) setPayrollSignDate(draft.payrollSignDate);
-      if (draft.pdfFileName) {
-        setPdfFileName(draft.pdfFileName);
-        setIsFileNameEdited(true);
-      }
-      showToast('Restored draft Timesheet progress.');
-    }
+    if (!draft) return;
+    if (draft.employeeName)     setEmployeeName(draft.employeeName);
+    if (draft.weeks?.length > 0) setWeeks(draft.weeks);
+    if (draft.employeeSignDate) setEmployeeSignDate(draft.employeeSignDate);
+    if (draft.pdfFileName)      { setPdfFileName(draft.pdfFileName); setFileNameEdited(true); }
+    showToast('Restored your saved draft.');
   }, []);
 
-  // Sync auto-dates when beginningDate changes
+  // ── Auto-generate PDF filename ──────────────────────────────────────────────
   useEffect(() => {
-    if (!beginningDate) return;
+    if (fileNameEdited) return;
+    const name = (employeeName || 'Employee').trim().replace(/\s+/g, '_');
+    const my   = monthYearStr(weeks[0]?.startDate);
+    setPdfFileName(`${name}_Timesheet_${my}.pdf`);
+  }, [employeeName, weeks, fileNameEdited]);
 
-    // Auto calculate ending date as beginningDate + 13 days
-    const base = new Date(beginningDate + 'T00:00:00');
-    if (!isNaN(base.getTime())) {
-      const end = new Date(base);
-      end.setDate(base.getDate() + 13);
-      setEndingDate(end.toISOString().split('T')[0]);
-    }
-
-    // Populate daily rows
-    const { w1, w2 } = populateSequentialDates(beginningDate);
-    setWeek1Entries(prev => prev.map((entry, idx) => ({ ...entry, date: w1[idx] })));
-    setWeek2Entries(prev => prev.map((entry, idx) => ({ ...entry, date: w2[idx] })));
-  }, [beginningDate]);
-
-  // Auto-generate filename when employeeName or beginningDate changes
-  useEffect(() => {
-    if (isFileNameEdited) return;
-
-    const formattedName = (employeeName || 'Employee').trim().replace(/\s+/g, '_');
-    const monthYear = getMonthYearStr(beginningDate);
-    setPdfFileName(`${formattedName}_Timesheet_${monthYear}.pdf`);
-  }, [employeeName, beginningDate, isFileNameEdited]);
-
-  const showToast = (msg, type = 'success') => {
-    setToastMessage({ text: msg, type });
-    setTimeout(() => setToastMessage(null), 4000);
+  // ── Persist draft ───────────────────────────────────────────────────────────
+  const persist = (patch = {}) => {
+    saveTimesheetDraft({
+      employeeName, weeks, employeeSignDate, pdfFileName, ...patch
+    });
   };
 
-  const handleEntryChange = (week, idx, field, value) => {
-    const updateRow = (row) => {
-      const updated = { ...row, [field]: value };
-      if (['timeIn1', 'timeOut1', 'timeIn2', 'timeOut2'].includes(field)) {
-        const diff1 = calculateDiff(updated.timeIn1, updated.timeOut1);
-        const diff2 = calculateDiff(updated.timeIn2, updated.timeOut2);
-        updated.totalHours = diff1 + diff2;
-      }
-      return updated;
-    };
-
-    if (week === 1) {
-      const updatedEntries = week1Entries.map((row, i) => (i === idx ? updateRow(row) : row));
-      setWeek1Entries(updatedEntries);
-      saveTimesheetDraft({
-        employeeName,
-        beginningDate,
-        endingDate,
-        week1Entries: updatedEntries,
-        week2Entries,
-        employeeSignDate,
-        employerSignDate,
-        payrollSignDate,
-        pdfFileName
-      });
-    } else {
-      const updatedEntries = week2Entries.map((row, i) => (i === idx ? updateRow(row) : row));
-      setWeek2Entries(updatedEntries);
-      saveTimesheetDraft({
-        employeeName,
-        beginningDate,
-        endingDate,
-        week1Entries,
-        week2Entries: updatedEntries,
-        employeeSignDate,
-        employerSignDate,
-        payrollSignDate,
-        pdfFileName
-      });
-    }
+  // ── Toast ───────────────────────────────────────────────────────────────────
+  const showToast = (text, type = 'success') => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 4000);
   };
 
-  const totalHoursWeek1 = week1Entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
-  const totalHoursWeek2 = week2Entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
-  const totalHoursPeriod = totalHoursWeek1 + totalHoursWeek2;
+  // ── Totals ──────────────────────────────────────────────────────────────────
+  const weekTotals      = weeks.map(w => w.entries.reduce((s, e) => s + (e.totalHours || 0), 0));
+  const periodTotal     = weekTotals.reduce((s, t) => s + t, 0);
 
-  const validateForm = () => {
+  // ── Week actions ────────────────────────────────────────────────────────────
+  const handleAddWeek = () => {
+    const updated = [...weeks, mkWeek(weeks.length + 1)];
+    setWeeks(updated);
+    persist({ weeks: updated });
+  };
+
+  const handleRemoveWeek = (weekId) => {
+    if (weeks.length === 1) { showToast('At least one week is required.', 'error'); return; }
+    const filtered   = weeks.filter(w => w.id !== weekId);
+    const renumbered = filtered.map((w, i) => ({ ...w, weekNum: i + 1 }));
+    setWeeks(renumbered);
+    persist({ weeks: renumbered });
+  };
+
+  // ── Row actions ─────────────────────────────────────────────────────────────
+  const handleAddRow = (weekId) => {
+    const updated = weeks.map(w => {
+      if (w.id !== weekId || w.entries.length >= 7) return w;
+      return { ...w, entries: [...w.entries, mkRow()] };
+    });
+    setWeeks(updated);
+    persist({ weeks: updated });
+  };
+
+  const handleRemoveRow = (weekId, rowId) => {
+    const updated = weeks.map(w => {
+      if (w.id !== weekId || w.entries.length <= 1) return w;
+      return { ...w, entries: w.entries.filter(e => e.id !== rowId) };
+    });
+    setWeeks(updated);
+    persist({ weeks: updated });
+  };
+
+  // ── Field changes ───────────────────────────────────────────────────────────
+  const handleWeekStartDate = (weekId, value) => {
+    const updated = weeks.map(w => w.id === weekId ? { ...w, startDate: value } : w);
+    setWeeks(updated);
+    persist({ weeks: updated });
+  };
+
+  const handleEntryChange = (weekId, rowId, field, value) => {
+    const updated = weeks.map(w => {
+      if (w.id !== weekId) return w;
+      return {
+        ...w,
+        entries: w.entries.map(e => {
+          if (e.id !== rowId) return e;
+          const next = { ...e, [field]: value };
+          if (['timeIn1','timeOut1','timeIn2','timeOut2'].includes(field)) {
+            next.totalHours = calcDiff(next.timeIn1, next.timeOut1)
+                            + calcDiff(next.timeIn2, next.timeOut2);
+          }
+          return next;
+        })
+      };
+    });
+    setWeeks(updated);
+    persist({ weeks: updated });
+  };
+
+  // ── Validation ──────────────────────────────────────────────────────────────
+  const validate = () => {
     const errors = {};
-    if (!employeeName.trim()) errors.employeeName = 'Employee Name is required';
-    if (!beginningDate) errors.beginningDate = 'Beginning Date is required';
-    if (!endingDate) errors.endingDate = 'Ending Date is required';
+    if (!employeeName.trim()) errors.employeeName = 'Employee Name is required.';
 
-    const checkShifts = (entry, idx, weekNum) => {
-      const errorsList = [];
-      const label = `Week ${weekNum} Day ${idx + 1}`;
-      if ((entry.timeIn1 && !entry.timeOut1) || (!entry.timeIn1 && entry.timeOut1)) {
-        errorsList.push(`${label}: Shift 1 requires both In and Out times.`);
-      } else if (entry.timeIn1 && entry.timeOut1) {
-        if (timeToDecimal(entry.timeOut1) <= timeToDecimal(entry.timeIn1)) {
-          errorsList.push(`${label}: Shift 1 Out must be after In time.`);
-        }
-      }
-      if ((entry.timeIn2 && !entry.timeOut2) || (!entry.timeIn2 && entry.timeOut2)) {
-        errorsList.push(`${label}: Shift 2 requires both In and Out times.`);
-      } else if (entry.timeIn2 && entry.timeOut2) {
-        if (timeToDecimal(entry.timeOut2) <= timeToDecimal(entry.timeIn2)) {
-          errorsList.push(`${label}: Shift 2 Out must be after In time.`);
-        }
-      }
-      return errorsList;
-    };
+    const rowErrs = [];
+    weeks.forEach(w => {
+      if (!w.startDate) rowErrs.push(`Week ${w.weekNum}: Week Start Date is required.`);
+      w.entries.forEach((e, i) => {
+        const lbl = `Week ${w.weekNum} Row ${i + 1}`;
+        if ((e.timeIn1 && !e.timeOut1) || (!e.timeIn1 && e.timeOut1))
+          rowErrs.push(`${lbl}: Shift 1 needs both In and Out.`);
+        else if (e.timeIn1 && e.timeOut1 && timeToDecimal(e.timeOut1) <= timeToDecimal(e.timeIn1))
+          rowErrs.push(`${lbl}: Shift 1 Out must be after Shift 1 In.`);
 
-    let rowErrors = [];
-    week1Entries.forEach((entry, idx) => {
-      rowErrors = [...rowErrors, ...checkShifts(entry, idx, 1)];
-    });
-    week2Entries.forEach((entry, idx) => {
-      rowErrors = [...rowErrors, ...checkShifts(entry, idx, 2)];
+        if ((e.timeIn2 && !e.timeOut2) || (!e.timeIn2 && e.timeOut2))
+          rowErrs.push(`${lbl}: Shift 2 needs both In and Out.`);
+        else if (e.timeIn2 && e.timeOut2 && timeToDecimal(e.timeOut2) <= timeToDecimal(e.timeIn2))
+          rowErrs.push(`${lbl}: Shift 2 Out must be after Shift 2 In.`);
+      });
     });
 
-    if (rowErrors.length > 0) {
-      errors.rows = rowErrors;
-    }
-
+    if (rowErrs.length) errors.rows = rowErrs;
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
+  // ── PDF payload ─────────────────────────────────────────────────────────────
   const getPayload = () => ({
     employeeName,
     departmentName: 'Success Center',
-    beginningDate,
-    endingDate,
-    week1Entries,
-    week2Entries,
-    totalHoursWeek1,
-    totalHoursWeek2,
-    totalHoursPeriod,
+    weeks,
+    weekTotals,
+    periodTotal,
     employeeSignature,
-    employerSignature,
-    payrollSignature,
-    employeeSignDate,
-    employerSignDate,
-    payrollSignDate
+    employeeSignDate
   });
 
-  const handleDownloadPDF = async () => {
-    if (!validateForm()) {
-      showToast('Validation failed. Please correct form errors.', 'error');
-      return;
-    }
+  // ── PDF actions ─────────────────────────────────────────────────────────────
+  const handleDownload = async () => {
+    if (!validate()) { showToast('Please fix form errors before downloading.', 'error'); return; }
     try {
-      showToast('Generating official Timesheet PDF...');
+      showToast('Generating PDF…');
       await generatePDF('timesheet', getPayload(), pdfFileName);
-      showToast('Timesheet PDF downloaded successfully.');
-    } catch (error) {
-      showToast('PDF generation failed.', 'error');
-    }
+      showToast('PDF downloaded successfully.');
+    } catch { showToast('PDF generation failed.', 'error'); }
   };
 
-  const handleEmailPDF = async () => {
-    if (!validateForm()) {
-      showToast('Validation failed. Please correct form errors.', 'error');
-      return;
-    }
+  const handleSubmit = async () => {
+    if (!validate()) { showToast('Please fix form errors before submitting.', 'error'); return; }
     try {
-      showToast('Preparing PDF package for supervisor submission...');
+      showToast('Preparing PDF for submission…');
       await generatePDF('timesheet', getPayload(), pdfFileName);
-
-      const bDateStr = beginningDate ? new Date(beginningDate + 'T00:00:00').toLocaleDateString() : '';
-      const eDateStr = endingDate ? new Date(endingDate + 'T00:00:00').toLocaleDateString() : '';
-      setEmailSubject(`Livingstone Success Center - Timesheet Submission - ${employeeName}`);
+      setEmailSubject(`Livingstone Success Center – Timesheet Submission – ${employeeName}`);
       setEmailBody(
         `Dear Mr. Davis,\n\nPlease find attached my Success Center Monthly Timesheet.\n\n` +
-        `Reporting Period: ${bDateStr} to ${eDateStr}\n` +
-        `Total worked hours this period: ${totalHoursPeriod.toFixed(2)} hours\n` +
-        `  - Week 1: ${totalHoursWeek1.toFixed(2)} hours\n` +
-        `  - Week 2: ${totalHoursWeek2.toFixed(2)} hours\n\n` +
-        `Best regards,\n${employeeName}`
+        `Total hours this period: ${periodTotal.toFixed(2)}\n` +
+        weeks.map((w, i) => `  • Week ${w.weekNum}: ${weekTotals[i].toFixed(2)} hrs`).join('\n') +
+        `\n\nBest regards,\n${employeeName}`
       );
-      setIsEmailModalOpen(true);
-    } catch (error) {
-      showToast('Failed to compile timesheet.', 'error');
-    }
+      setEmailOpen(true);
+    } catch { showToast('Failed to compile timesheet.', 'error'); }
   };
 
-  const handlePrintForm = () => {
-    window.print();
+  const handleClear = () => {
+    if (!window.confirm('Clear the entire timesheet form?')) return;
+    setEmployeeName('');
+    setWeeks([mkWeek(1)]);
+    setEmployeeSignature(null);
+    setEmployeeSignDate(new Date().toISOString().split('T')[0]);
+    setPdfFileName('Employee_Timesheet_Month_Year.pdf');
+    setFileNameEdited(false);
+    clearTimesheetDraft();
+    showToast('Timesheet cleared.');
   };
 
-  const handleClearForm = () => {
-    if (window.confirm('Are you sure you want to clear this entire timesheet form?')) {
-      setEmployeeName('');
-      setBeginningDate('');
-      setEndingDate('');
-      setWeek1Entries(Array.from({ length: 7 }, (_, i) => defaultRow(`w1-${i}`)));
-      setWeek2Entries(Array.from({ length: 7 }, (_, i) => defaultRow(`w2-${i}`)));
-      setEmployeeSignature(null);
-      setEmployerSignature(null);
-      setPayrollSignature(null);
-      setEmployeeSignDate(new Date().toISOString().split('T')[0]);
-      setEmployerSignDate(new Date().toISOString().split('T')[0]);
-      setPayrollSignDate(new Date().toISOString().split('T')[0]);
-      setPdfFileName('Employee_Timesheet_Month_Year.pdf');
-      setIsFileNameEdited(false);
-      clearTimesheetDraft();
-      showToast('Timesheet cleared.');
-    }
-  };
+  // ── Render a single week block ───────────────────────────────────────────────
+  const renderWeek = (week, idx) => {
+    const wTotal   = weekTotals[idx];
+    const atMax    = week.entries.length >= 7;
+    const canRemRow = week.entries.length > 1;
 
-  const renderTable = (entries, weekNum) => (
-    <div style={styles.tableCard} className="table-card-box">
-      <div style={styles.tableTitleRow}>
-        Week {weekNum} Logs
-      </div>
-      <div style={styles.tableScroll}>
-        <table style={styles.table}>
-          <thead>
-            <tr style={styles.tableHeaderRow}>
-              <th style={{ ...styles.th, width: '130px' }}>Date</th>
-              <th style={styles.th}>Shift 1 In</th>
-              <th style={styles.th}>Shift 1 Out</th>
-              <th style={styles.th}>Shift 2 In</th>
-              <th style={styles.th}>Shift 2 Out</th>
-              <th style={{ ...styles.th, width: '80px', textAlign: 'center' }}>Daily Hrs</th>
-              <th style={{ ...styles.th, width: '150px' }}>Student Name & ID</th>
-              <th style={{ ...styles.th, width: '150px' }}>Subject / Topic</th>
-              <th style={{ ...styles.th, width: '180px' }}>Progress Notes / Comments</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry, idx) => (
-              <tr key={entry.id} style={styles.tableBodyRow}>
-                <td style={styles.td}>
-                  <input
-                    type="date"
-                    value={entry.date}
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Date`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'date', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="time"
-                    value={entry.timeIn1}
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 1 In`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeIn1', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="time"
-                    value={entry.timeOut1}
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 1 Out`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeOut1', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="time"
-                    value={entry.timeIn2}
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 2 In`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeIn2', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="time"
-                    value={entry.timeOut2}
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 2 Out`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeOut2', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={{ ...styles.td, textAlign: 'center', fontWeight: 'bold' }}>
-                  {entry.totalHours ? entry.totalHours.toFixed(2) : '0.00'}
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="text"
-                    value={entry.studentNameId}
-                    placeholder="e.g. John Doe (LC0012)"
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Student Details`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'studentNameId', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="text"
-                    value={entry.subject}
-                    placeholder="e.g. Essay Review"
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Subject`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'subject', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="text"
-                    value={entry.notes}
-                    placeholder="Tutoring notes"
-                    aria-label={`Week ${weekNum} Day ${idx + 1} Notes`}
-                    onChange={(e) => handleEntryChange(weekNum, idx, 'notes', e.target.value)}
-                    style={styles.tableInput}
-                  />
-                </td>
+    return (
+      <div key={week.id} style={S.weekCard} className="week-card">
+        {/* Week header bar */}
+        <div style={S.weekHeader}>
+          <div style={S.weekHeaderLeft}>
+            <span style={S.weekBadge}>WEEK {week.weekNum}</span>
+            <div style={S.startDateWrap}>
+              <label style={S.startDateLabel} htmlFor={`wsd-${week.id}`}>
+                Week Start Date
+              </label>
+              <input
+                id={`wsd-${week.id}`}
+                type="date"
+                value={week.startDate}
+                onChange={e => handleWeekStartDate(week.id, e.target.value)}
+                style={S.startDateInput}
+              />
+            </div>
+          </div>
+          {weeks.length > 1 && (
+            <button
+              type="button"
+              onClick={() => handleRemoveWeek(week.id)}
+              style={S.removeWeekBtn}
+              title={`Remove Week ${week.weekNum}`}
+            >
+              <X size={13} style={{ marginRight: 4 }} /> Remove Week
+            </button>
+          )}
+        </div>
+
+        {/* Scrollable table */}
+        <div style={S.tableScroll}>
+          <table style={S.table}>
+            <thead>
+              <tr style={S.thead}>
+                <th style={{ ...S.th, width: 112 }}>Date</th>
+                <th style={{ ...S.th, width: 96 }}>Shift 1 In</th>
+                <th style={{ ...S.th, width: 96 }}>Shift 1 Out</th>
+                <th style={{ ...S.th, width: 96 }}>Shift 2 In</th>
+                <th style={{ ...S.th, width: 96 }}>Shift 2 Out</th>
+                <th style={{ ...S.th, width: 72, textAlign: 'center' }}>Daily Hrs</th>
+                <th style={{ ...S.th, width: 160 }}>Student Name & ID</th>
+                <th style={{ ...S.th, width: 210 }}>Subject / Topic</th>
+                <th style={{ ...S.th, width: 270 }}>Progress Notes</th>
+                {canRemRow && <th style={{ ...S.th, width: 34 }}></th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={styles.weeklySummaryRow}>
-        <span>Week {weekNum} Total Worked Hours:</span>
-        <span style={styles.weeklySummaryVal}>{weekNum === 1 ? totalHoursWeek1.toFixed(2) : totalHoursWeek2.toFixed(2)} hrs</span>
-      </div>
-    </div>
-  );
+            </thead>
+            <tbody>
+              {week.entries.map((entry, rowIdx) => {
+                const rowDate = week.startDate ? addDays(week.startDate, rowIdx) : '';
+                return (
+                  <tr key={entry.id} style={S.tbodyRow}>
+                    {/* Auto-computed date — read only */}
+                    <td style={S.td}>
+                      <div style={rowDate ? S.dateChip : S.datePlaceholder}>
+                        {rowDate ? displayDate(rowDate) : '—'}
+                      </div>
+                    </td>
+                    <td style={S.td}>
+                      <input type="time" value={entry.timeIn1}
+                        onChange={e => handleEntryChange(week.id, entry.id, 'timeIn1', e.target.value)}
+                        style={S.timeInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} S1In`} />
+                    </td>
+                    <td style={S.td}>
+                      <input type="time" value={entry.timeOut1}
+                        onChange={e => handleEntryChange(week.id, entry.id, 'timeOut1', e.target.value)}
+                        style={S.timeInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} S1Out`} />
+                    </td>
+                    <td style={S.td}>
+                      <input type="time" value={entry.timeIn2}
+                        onChange={e => handleEntryChange(week.id, entry.id, 'timeIn2', e.target.value)}
+                        style={S.timeInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} S2In`} />
+                    </td>
+                    <td style={S.td}>
+                      <input type="time" value={entry.timeOut2}
+                        onChange={e => handleEntryChange(week.id, entry.id, 'timeOut2', e.target.value)}
+                        style={S.timeInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} S2Out`} />
+                    </td>
+                    <td style={{ ...S.td, textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
+                      {(entry.totalHours || 0).toFixed(2)}
+                    </td>
+                    <td style={S.td}>
+                      <input type="text" value={entry.studentNameId}
+                        placeholder="e.g. Jane Doe (LC0012)"
+                        onChange={e => handleEntryChange(week.id, entry.id, 'studentNameId', e.target.value)}
+                        style={S.cellTextInput}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} Student`} />
+                    </td>
+                    <td style={S.td}>
+                      {/* Subject — ~2 sentences */}
+                      <textarea
+                        value={entry.subject}
+                        placeholder="Subject area and brief description…"
+                        onChange={e => handleEntryChange(week.id, entry.id, 'subject', e.target.value)}
+                        style={S.subjectArea}
+                        rows={2}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} Subject`}
+                      />
+                    </td>
+                    <td style={S.td}>
+                      {/* Notes — ~4 sentences */}
+                      <textarea
+                        value={entry.notes}
+                        placeholder="Session progress, areas of improvement, topics covered…"
+                        onChange={e => handleEntryChange(week.id, entry.id, 'notes', e.target.value)}
+                        style={S.notesArea}
+                        rows={4}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} Notes`}
+                      />
+                    </td>
+                    {canRemRow && (
+                      <td style={{ ...S.td, verticalAlign: 'top', paddingTop: 10 }}>
+                        <button type="button"
+                          onClick={() => handleRemoveRow(week.id, entry.id)}
+                          style={S.removeRowBtn}
+                          title="Remove row"
+                        >
+                          <X size={12} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
+        {/* Week footer: Add Row + weekly total */}
+        <div style={S.weekFooter}>
+          <button
+            type="button"
+            onClick={() => handleAddRow(week.id)}
+            disabled={atMax}
+            style={atMax ? S.addRowBtnDisabled : S.addRowBtn}
+          >
+            <Plus size={13} style={{ marginRight: 4 }} />
+            {atMax ? 'Max 7 Rows Reached' : '+ Add Row'}
+          </button>
+          <div style={S.weekTotal}>
+            <span style={S.weekTotalLabel}>Week {week.weekNum} Total:</span>
+            <span style={S.weekTotalVal}>{wTotal.toFixed(2)} hrs</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── JSX ──────────────────────────────────────────────────────────────────────
   return (
-    <div className="form-page-layout" style={styles.container}>
-      {toastMessage && (
-        <div 
-          style={{
-            ...styles.toast,
-            backgroundColor: toastMessage.type === 'error' ? '#ef4444' : '#000000',
-            color: '#ffffff'
-          }}
-        >
-          <span>{toastMessage.text}</span>
+    <div className="form-page-layout" style={S.page}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          ...S.toast,
+          backgroundColor: toast.type === 'error' ? '#ef4444' : '#18181b'
+        }}>
+          {toast.text}
         </div>
       )}
 
-      {/* Official double underline Header */}
-      <div className="printable-form-header" style={styles.officialHeader}>
-        <h1 style={styles.collegeName}>Livingstone College</h1>
-        <h2 style={styles.formTitle}>Success Center Monthly Timesheet</h2>
-        <p style={styles.subtext}>Department: Success Center • Salisbury, North Carolina 28144</p>
+      {/* Official header */}
+      <div className="printable-form-header" style={S.officialHeader}>
+        <h1 style={S.collegeName}>Livingstone College</h1>
+        <h2 style={S.formTitle}>Success Center Monthly Timesheet</h2>
+        <p style={S.subtext}>Department: Success Center • Salisbury, North Carolina 28144</p>
       </div>
 
-      <div style={styles.formWrapper} className="form-wrapper-box">
-        {/* Validation Errors banner */}
+      <div style={S.card} className="form-wrapper-box">
+
+        {/* Error banner */}
         {Object.keys(formErrors).length > 0 && (
-          <div style={styles.errorBanner} id="timesheet-error-banner" className="no-print">
-            <p style={{ margin: '0 0 5px 0', fontWeight: '700' }}>Please review the following issues:</p>
-            <ul style={{ margin: 0, paddingLeft: '18px' }}>
+          <div style={S.errorBanner} id="timesheet-error-banner" className="no-print">
+            <strong>Please fix the following before continuing:</strong>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
               {formErrors.employeeName && <li>{formErrors.employeeName}</li>}
-              {formErrors.beginningDate && <li>{formErrors.beginningDate}</li>}
-              {formErrors.endingDate && <li>{formErrors.endingDate}</li>}
-              {formErrors.rows && formErrors.rows.map((err, i) => <li key={i}>{err}</li>)}
+              {(formErrors.rows || []).map((e, i) => <li key={i}>{e}</li>)}
             </ul>
           </div>
         )}
 
-        {/* Metadata grid */}
-        <div style={styles.headerGrid}>
-          <div style={styles.formGroup}>
-            <label style={styles.formLabel} htmlFor="employee-name">Employee Name</label>
+        {/* Meta row */}
+        <div style={S.metaRow}>
+          <div style={S.formGroup}>
+            <label style={S.formLabel} htmlFor="employee-name">Employee Name</label>
             <input
               id="employee-name"
               type="text"
               value={employeeName}
               placeholder="e.g. Aida Garba"
-              onChange={(e) => {
+              onChange={e => {
                 setEmployeeName(e.target.value);
-                saveTimesheetDraft({
-                  employeeName: e.target.value,
-                  beginningDate,
-                  endingDate,
-                  week1Entries,
-                  week2Entries,
-                  employeeSignDate,
-                  employerSignDate,
-                  payrollSignDate,
-                  pdfFileName
-                });
+                persist({ employeeName: e.target.value });
               }}
-              style={styles.textInput}
+              style={S.metaInput}
             />
           </div>
-          <div style={styles.formGroup}>
-            <label style={styles.formLabel}>Department Name</label>
-            <input
-              type="text"
-              value="Success Center"
-              disabled
-              style={styles.disabledInput}
-            />
-          </div>
-          <div style={styles.formGroup}>
-            <label style={styles.formLabel} htmlFor="beginning-date">Reporting Start Date</label>
-            <input
-              id="beginning-date"
-              type="date"
-              value={beginningDate}
-              onChange={(e) => {
-                setBeginningDate(e.target.value);
-                saveTimesheetDraft({
-                  employeeName,
-                  beginningDate: e.target.value,
-                  endingDate,
-                  week1Entries,
-                  week2Entries,
-                  employeeSignDate,
-                  employerSignDate,
-                  payrollSignDate,
-                  pdfFileName
-                });
-              }}
-              style={styles.textInput}
-            />
-          </div>
-          <div style={styles.formGroup}>
-            <label style={styles.formLabel} htmlFor="ending-date">Reporting End Date</label>
-            <input
-              id="ending-date"
-              type="date"
-              value={endingDate}
-              onChange={(e) => {
-                setEndingDate(e.target.value);
-                saveTimesheetDraft({
-                  employeeName,
-                  beginningDate,
-                  endingDate: e.target.value,
-                  week1Entries,
-                  week2Entries,
-                  employeeSignDate,
-                  employerSignDate,
-                  payrollSignDate,
-                  pdfFileName
-                });
-              }}
-              style={styles.textInput}
-            />
+          <div style={S.formGroup}>
+            <label style={S.formLabel}>Department</label>
+            <input type="text" value="Success Center" disabled style={S.metaInputDisabled} />
           </div>
         </div>
 
-        {/* Logs tables */}
-        {renderTable(week1Entries, 1)}
-        {renderTable(week2Entries, 2)}
-
-        {/* Period Totals display */}
-        <div style={styles.totalBar}>
-          <span style={styles.totalLabel}>Total Hours Logged This Reporting Period:</span>
-          <span style={styles.totalValue}>{totalHoursPeriod.toFixed(2)} hrs</span>
+        {/* Weeks */}
+        <div style={S.weeksWrap}>
+          {weeks.map((w, i) => renderWeek(w, i))}
         </div>
 
-        {/* Signature drawing pads grid */}
-        <div style={styles.signatureSection} className="no-print">
-          <h3 style={styles.signatureSectionTitle}>Signatures Required</h3>
-          <div style={styles.signatureGrid}>
-            {/* Employee Signature */}
-            <div style={styles.sigCard}>
-              <label style={styles.sigLabel}>1. Employee Signature</label>
-              <SignaturePad
-                key={employeeSignature ? 'employee-has' : 'employee-none'}
-                onSave={(sigData) => setEmployeeSignature(sigData)}
-                onClear={() => setEmployeeSignature(null)}
-                width={380}
-                height={100}
-              />
-              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
-                <label style={styles.sigDateLabel} htmlFor="employee-sign-date">Date Signed</label>
-                <input
-                  id="employee-sign-date"
-                  type="date"
-                  value={employeeSignDate}
-                  onChange={(e) => {
-                    setEmployeeSignDate(e.target.value);
-                    saveTimesheetDraft({
-                      employeeName,
-                      beginningDate,
-                      endingDate,
-                      week1Entries,
-                      week2Entries,
-                      employeeSignDate: e.target.value,
-                      employerSignDate,
-                      payrollSignDate,
-                      pdfFileName
-                    });
-                  }}
-                  style={styles.sigDateInput}
-                />
-              </div>
-            </div>
+        {/* Add Week */}
+        <div style={S.addWeekRow} className="no-print">
+          <button type="button" onClick={handleAddWeek} style={S.addWeekBtn}>
+            <Plus size={14} style={{ marginRight: 6 }} />
+            Add Week {weeks.length + 1}
+          </button>
+        </div>
 
-            {/* Employer Signature */}
-            <div style={styles.sigCard}>
-              <label style={styles.sigLabel}>2. Employer / Supervisor Signature</label>
-              <SignaturePad
-                key={employerSignature ? 'employer-has' : 'employer-none'}
-                onSave={(sigData) => setEmployerSignature(sigData)}
-                onClear={() => setEmployerSignature(null)}
-                width={380}
-                height={100}
-              />
-              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
-                <label style={styles.sigDateLabel} htmlFor="employer-sign-date">Date Signed</label>
-                <input
-                  id="employer-sign-date"
-                  type="date"
-                  value={employerSignDate}
-                  onChange={(e) => {
-                    setEmployerSignDate(e.target.value);
-                    saveTimesheetDraft({
-                      employeeName,
-                      beginningDate,
-                      endingDate,
-                      week1Entries,
-                      week2Entries,
-                      employeeSignDate,
-                      employerSignDate: e.target.value,
-                      payrollSignDate,
-                      pdfFileName
-                    });
-                  }}
-                  style={styles.sigDateInput}
-                />
-              </div>
-            </div>
+        {/* Period total */}
+        <div style={S.periodTotal} className="totalBar">
+          <span style={S.totalLabel}>Total Hours This Reporting Period</span>
+          <span style={S.totalValue}>{periodTotal.toFixed(2)} hrs</span>
+        </div>
 
-            {/* Payroll Signature */}
-            <div style={styles.sigCard}>
-              <label style={styles.sigLabel}>3. Payroll Department Signature</label>
-              <SignaturePad
-                key={payrollSignature ? 'payroll-has' : 'payroll-none'}
-                onSave={(sigData) => setPayrollSignature(sigData)}
-                onClear={() => setPayrollSignature(null)}
-                width={380}
-                height={100}
+        {/* Employee Signature */}
+        <div style={S.sigSection} className="no-print">
+          <div style={S.sigSectionHeader}>
+            <span style={S.sigSectionTitle}>Employee Signature</span>
+            <span style={S.sigSectionHint}>Draw with mouse or finger</span>
+          </div>
+          <div style={S.sigCard}>
+            <SignaturePad
+              key={employeeSignature ? 'has-sig' : 'no-sig'}
+              onSave={d => setEmployeeSignature(d)}
+              onClear={() => setEmployeeSignature(null)}
+              width={420}
+              height={110}
+            />
+            <div style={{ marginTop: 10 }}>
+              <label style={S.sigDateLabel} htmlFor="emp-sign-date">Date Signed</label>
+              <input
+                id="emp-sign-date"
+                type="date"
+                value={employeeSignDate}
+                onChange={e => {
+                  setEmployeeSignDate(e.target.value);
+                  persist({ employeeSignDate: e.target.value });
+                }}
+                style={S.sigDateInput}
               />
-              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
-                <label style={styles.sigDateLabel} htmlFor="payroll-sign-date">Date Signed</label>
-                <input
-                  id="payroll-sign-date"
-                  type="date"
-                  value={payrollSignDate}
-                  onChange={(e) => {
-                    setPayrollSignDate(e.target.value);
-                    saveTimesheetDraft({
-                      employeeName,
-                      beginningDate,
-                      endingDate,
-                      week1Entries,
-                      week2Entries,
-                      employeeSignDate,
-                      employerSignDate,
-                      payrollSignDate: e.target.value,
-                      pdfFileName
-                    });
-                  }}
-                  style={styles.sigDateInput}
-                />
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Naming Configuration Box */}
-        <div style={styles.namingCard} className="no-print">
-          <label style={styles.namingLabel} htmlFor="pdf-filename-input">PDF File Name before downloading</label>
-          <div style={styles.namingInputWrapper}>
+        {/* PDF filename */}
+        <div style={S.namingCard} className="no-print">
+          <label style={S.namingLabel} htmlFor="pdf-filename">PDF Filename</label>
+          <div style={S.namingRow}>
             <input
-              id="pdf-filename-input"
+              id="pdf-filename"
               type="text"
               value={pdfFileName}
-              placeholder="Aida_Garba_Timesheet_June_2026.pdf"
-              onChange={(e) => {
+              onChange={e => {
                 setPdfFileName(e.target.value);
-                setIsFileNameEdited(true);
-                saveTimesheetDraft({
-                  employeeName,
-                  beginningDate,
-                  endingDate,
-                  week1Entries,
-                  week2Entries,
-                  employeeSignDate,
-                  employerSignDate,
-                  payrollSignDate,
-                  pdfFileName: e.target.value
-                });
+                setFileNameEdited(true);
+                persist({ pdfFileName: e.target.value });
               }}
-              style={styles.namingInput}
+              style={S.namingInput}
             />
-            {isFileNameEdited && (
-              <button 
-                type="button" 
-                onClick={() => {
-                  setIsFileNameEdited(false);
-                  showToast('Reset filename to auto-generation.');
-                }}
-                style={styles.resetNameBtn}
-              >
+            {fileNameEdited && (
+              <button type="button" style={S.resetBtn}
+                onClick={() => { setFileNameEdited(false); showToast('Filename reset to auto.'); }}>
                 Reset Default
               </button>
             )}
           </div>
         </div>
 
-        {/* Form Action Controls */}
-        <div style={styles.actionsBar} className="no-print">
-          <button type="button" onClick={handleClearForm} style={styles.clearBtn}>
-            Reset Form
-          </button>
-          <div style={styles.mainActions}>
-            <button type="button" onClick={handlePrintForm} style={styles.printBtn}>
-              <Printer size={15} /> Print Form
+        {/* Actions */}
+        <div style={S.actionsBar} className="no-print">
+          <button type="button" onClick={handleClear} style={S.clearBtn}>Reset Form</button>
+          <div style={S.mainActions}>
+            <button type="button" onClick={() => window.print()} style={S.printBtn}>
+              <Printer size={15} style={{ marginRight: 6 }} /> Print Form
             </button>
-            <button type="button" onClick={handleDownloadPDF} style={styles.downloadBtn}>
-              <Download size={15} /> Download PDF
+            <button type="button" onClick={handleDownload} style={S.downloadBtn}>
+              <Download size={15} style={{ marginRight: 6 }} /> Download PDF
             </button>
-            <button type="button" onClick={handleEmailPDF} style={styles.submitBtn}>
-              <Send size={15} /> Submit PDF
+            <button type="button" onClick={handleSubmit} style={S.submitBtn}>
+              <Send size={15} style={{ marginRight: 6 }} /> Submit PDF
             </button>
           </div>
         </div>
       </div>
 
-      {/* Signature lines visible ONLY in browser printing */}
-      <div className="print-only-signatures" style={styles.printSignatures}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-          <tbody>
-            <tr>
-              <td style={{ width: '28%', verticalAlign: 'bottom', position: 'relative' }}>
-                {employeeSignature && (
-                  <img 
-                    src={employeeSignature} 
-                    alt="Employee Signature" 
-                    style={{ 
-                      position: 'absolute', 
-                      bottom: '22px', 
-                      left: '10px', 
-                      height: '35px', 
-                      pointerEvents: 'none' 
-                    }} 
-                  />
-                )}
-                <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>EMPLOYEE SIGNATURE</div>
-                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {employeeSignDate || '—'}</div>
-              </td>
-              <td style={{ width: '36%', verticalAlign: 'bottom', paddingLeft: '15px', position: 'relative' }}>
-                {employerSignature && (
-                  <img 
-                    src={employerSignature} 
-                    alt="Employer Signature" 
-                    style={{ 
-                      position: 'absolute', 
-                      bottom: '22px', 
-                      left: '25px', 
-                      height: '35px', 
-                      pointerEvents: 'none' 
-                    }} 
-                  />
-                )}
-                <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>EMPLOYER / SUPERVISOR SIGNATURE</div>
-                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {employerSignDate || '—'}</div>
-              </td>
-              <td style={{ width: '36%', verticalAlign: 'bottom', paddingLeft: '15px', position: 'relative' }}>
-                {payrollSignature && (
-                  <img 
-                    src={payrollSignature} 
-                    alt="Payroll Signature" 
-                    style={{ 
-                      position: 'absolute', 
-                      bottom: '22px', 
-                      left: '25px', 
-                      height: '35px', 
-                      pointerEvents: 'none' 
-                    }} 
-                  />
-                )}
-                <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>PAYROLL DEPT SIGNATURE</div>
-                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {payrollSignDate || '—'}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        
-        {/* Administrative Note Footer */}
-        <div style={{
-          marginTop: '40px',
-          textAlign: 'center',
-          fontSize: '9px',
-          borderTop: '1px solid #000000',
-          paddingTop: '8px',
-          textTransform: 'uppercase',
-          color: '#333333',
-          letterSpacing: '0.5px',
-          fontFamily: 'sans-serif'
-        }}>
-          LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NORTH CAROLINA 28144 • SUPERVISOR: BENJAMIN DAVIS (bdavis1@livingstone.edu)
+      {/* Print-only signature line */}
+      <div className="print-only-signatures" style={S.printSig}>
+        <div style={{ position: 'relative', display: 'inline-block', width: '38%' }}>
+          {employeeSignature && (
+            <img src={employeeSignature} alt="Signature"
+              style={{ position: 'absolute', bottom: 20, left: 8, height: 36, pointerEvents: 'none' }} />
+          )}
+          <div style={{ borderBottom: '1px solid #000', height: 36, width: '90%' }} />
+          <div style={{ marginTop: 5, fontWeight: 'bold', fontSize: 11 }}>EMPLOYEE SIGNATURE</div>
+          <div style={{ marginTop: 2, fontStyle: 'italic', fontSize: 9 }}>Date: {employeeSignDate || '—'}</div>
+        </div>
+        <div style={S.printFooterNote}>
+          LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NC 28144 • SUPERVISOR: BENJAMIN DAVIS (bdavis1@livingstone.edu)
         </div>
       </div>
 
       <EmailModal
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
+        isOpen={emailOpen}
+        onClose={() => setEmailOpen(false)}
         pdfFileName={pdfFileName}
         subject={emailSubject}
         body={emailBody}
@@ -826,360 +588,312 @@ export default function TimesheetForm({ onFormSubmitSuccess }) {
   );
 }
 
-const styles = {
-  container: {
-    maxWidth: '1280px', // Expanded for tabular space
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const S = {
+  page: {
+    maxWidth: 1380,
     margin: '0 auto',
-    padding: '24px 16px'
+    padding: '24px 16px 60px'
+  },
+  toast: {
+    position: 'fixed', top: 20, right: 20,
+    padding: '12px 22px',
+    color: '#fff', borderRadius: 8,
+    fontSize: 13, fontWeight: 600,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+    zIndex: 1001,
+    animation: 'slideIn 0.3s ease-out'
   },
   officialHeader: {
     textAlign: 'center',
-    marginBottom: '24px',
-    borderBottom: '3px double #000000',
-    paddingBottom: '15px'
+    borderBottom: '3px double #000',
+    paddingBottom: 14,
+    marginBottom: 22
   },
   collegeName: {
     fontFamily: "'Outfit', sans-serif",
-    fontSize: '28px',
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: '1px',
-    color: '#000000',
-    margin: 0
+    fontSize: 28, fontWeight: 800,
+    textTransform: 'uppercase', letterSpacing: 1,
+    color: '#000', margin: 0
   },
   formTitle: {
     fontFamily: "'Inter', sans-serif",
-    fontSize: '15px',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: '2px',
-    color: '#333333',
-    marginTop: '4px',
-    margin: 0
+    fontSize: 14, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 2,
+    color: '#333', marginTop: 4, margin: 0
   },
-  subtext: {
-    fontSize: '12px',
-    color: '#555555',
-    marginTop: '4px'
-  },
-  formWrapper: {
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
+  subtext: { fontSize: 12, color: '#555', marginTop: 4 },
+
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
     border: '1px solid #cbd5e1',
-    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
-    padding: '24px'
+    boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+    padding: 24
   },
   errorBanner: {
     backgroundColor: '#fef2f2',
     border: '1px solid #fca5a5',
     color: '#b91c1c',
-    padding: '12px 16px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    marginBottom: '20px'
+    padding: '12px 16px', borderRadius: 8,
+    fontSize: 13, marginBottom: 20
   },
-  headerGrid: {
+
+  metaRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '16px',
-    marginBottom: '24px'
+    gap: 16, marginBottom: 24
   },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px'
-  },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: 6 },
   formLabel: {
-    fontSize: '11px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    color: '#475569'
+    fontSize: 11, fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: 0.5, color: '#475569'
   },
-  textInput: {
-    padding: '10px 12px',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '13px',
+  metaInput: {
+    padding: '10px 12px', border: '1px solid #cbd5e1',
+    borderRadius: 6, fontSize: 13,
+    fontFamily: "'Inter', sans-serif", outline: 'none', color: '#000'
+  },
+  metaInputDisabled: {
+    padding: '10px 12px', border: '1px solid #cbd5e1',
+    borderRadius: 6, fontSize: 13,
     fontFamily: "'Inter', sans-serif",
-    outline: 'none',
-    backgroundColor: '#ffffff',
-    color: '#000000'
+    backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed'
   },
-  disabledInput: {
-    padding: '10px 12px',
+
+  weeksWrap: { display: 'flex', flexDirection: 'column', gap: 24 },
+
+  weekCard: {
     border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontFamily: "'Inter', sans-serif",
-    backgroundColor: '#f1f5f9',
-    color: '#64748b',
-    cursor: 'not-allowed'
+    borderRadius: 10,
+    overflow: 'hidden'
   },
-  tableCard: {
-    border: '1px solid #cbd5e1',
-    borderRadius: '8px',
-    overflow: 'hidden',
-    marginBottom: '24px'
+  weekHeader: {
+    backgroundColor: '#000',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '10px 16px'
   },
-  tableTitleRow: {
-    backgroundColor: '#000000',
-    color: '#ffffff',
-    padding: '8px 16px',
-    fontWeight: '700',
-    fontSize: '12px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px'
+  weekHeaderLeft: { display: 'flex', alignItems: 'center', gap: 16 },
+  weekBadge: {
+    color: '#fff', fontWeight: 800, fontSize: 12,
+    letterSpacing: 1, textTransform: 'uppercase'
   },
-  tableScroll: {
-    overflowX: 'auto'
+  startDateWrap: { display: 'flex', alignItems: 'center', gap: 8 },
+  startDateLabel: {
+    color: '#a0aec0', fontSize: 11, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap'
   },
+  startDateInput: {
+    padding: '5px 8px', border: '1px solid #4a5568',
+    borderRadius: 5, fontSize: 12, backgroundColor: '#1a1a1a',
+    color: '#fff', outline: 'none',
+    colorScheme: 'dark'
+  },
+  removeWeekBtn: {
+    display: 'flex', alignItems: 'center',
+    padding: '5px 10px', borderRadius: 5,
+    backgroundColor: 'transparent', border: '1px solid #4a5568',
+    color: '#a0aec0', cursor: 'pointer', fontSize: 11, fontWeight: 600
+  },
+
+  tableScroll: { overflowX: 'auto' },
   table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    textAlign: 'left',
-    minWidth: '950px' // Ensures horizontal scroll works on small viewports
+    width: '100%', borderCollapse: 'collapse', textAlign: 'left',
+    minWidth: 1100
   },
-  tableHeaderRow: {
-    backgroundColor: '#f8fafc',
-    borderBottom: '2px solid #cbd5e1'
-  },
+  thead: { backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' },
   th: {
-    padding: '10px 14px',
-    fontSize: '11px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    color: '#475569'
+    padding: '10px 12px', fontSize: 10,
+    fontWeight: 700, textTransform: 'uppercase',
+    color: '#475569', letterSpacing: 0.4
   },
-  tableBodyRow: {
-    borderBottom: '1px solid #e2e8f0'
+  tbodyRow: { borderBottom: '1px solid #e2e8f0' },
+  td: { padding: '8px 10px', verticalAlign: 'top' },
+
+  dateChip: {
+    padding: '6px 8px',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 5, fontSize: 12,
+    fontWeight: 600, color: '#0f172a',
+    whiteSpace: 'nowrap'
   },
-  td: {
-    padding: '8px 12px'
+  datePlaceholder: {
+    padding: '6px 8px',
+    color: '#94a3b8', fontSize: 13
   },
-  tableInput: {
-    width: '100%',
-    padding: '8px 10px',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '12px',
-    fontFamily: "'Inter', sans-serif",
-    outline: 'none',
-    backgroundColor: '#ffffff',
-    color: '#000000'
+
+  timeInput: {
+    width: '100%', padding: '7px 8px',
+    border: '1px solid #cbd5e1', borderRadius: 5,
+    fontSize: 12, outline: 'none',
+    fontFamily: "'Inter', sans-serif", color: '#000',
+    backgroundColor: '#fff'
   },
-  weeklySummaryRow: {
-    padding: '12px 16px',
-    backgroundColor: '#f8fafc',
-    borderTop: '1px solid #e2e8f0',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    fontWeight: '700',
-    fontSize: '13px'
+  cellTextInput: {
+    width: '100%', padding: '7px 8px',
+    border: '1px solid #cbd5e1', borderRadius: 5,
+    fontSize: 12, outline: 'none',
+    fontFamily: "'Inter', sans-serif", color: '#000',
+    backgroundColor: '#fff'
   },
-  weeklySummaryVal: {
-    color: '#000000',
-    fontSize: '14px'
+  subjectArea: {
+    width: '100%', padding: '7px 8px',
+    border: '1px solid #cbd5e1', borderRadius: 5,
+    fontSize: 12, outline: 'none', resize: 'vertical',
+    fontFamily: "'Inter', sans-serif", color: '#000',
+    backgroundColor: '#fff', lineHeight: 1.45,
+    minHeight: 58
   },
-  totalBar: {
-    backgroundColor: '#000000',
-    color: '#ffffff',
-    borderRadius: '8px',
-    padding: '14px 20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '24px'
+  notesArea: {
+    width: '100%', padding: '7px 8px',
+    border: '1px solid #cbd5e1', borderRadius: 5,
+    fontSize: 12, outline: 'none', resize: 'vertical',
+    fontFamily: "'Inter', sans-serif", color: '#000',
+    backgroundColor: '#fff', lineHeight: 1.45,
+    minHeight: 96
   },
-  totalLabel: {
-    fontSize: '12px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px'
+  removeRowBtn: {
+    padding: '4px 6px', borderRadius: 4,
+    backgroundColor: '#fff', border: '1px solid #fca5a5',
+    color: '#ef4444', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
   },
+
+  weekFooter: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '10px 16px',
+    backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0'
+  },
+  addRowBtn: {
+    display: 'flex', alignItems: 'center',
+    padding: '7px 14px',
+    backgroundColor: '#fff', border: '1px solid #000',
+    borderRadius: 6, fontSize: 12, fontWeight: 600,
+    color: '#000', cursor: 'pointer'
+  },
+  addRowBtnDisabled: {
+    display: 'flex', alignItems: 'center',
+    padding: '7px 14px',
+    backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
+    borderRadius: 6, fontSize: 12, fontWeight: 600,
+    color: '#94a3b8', cursor: 'not-allowed'
+  },
+  weekTotal: { display: 'flex', alignItems: 'center', gap: 8 },
+  weekTotalLabel: { fontSize: 12, fontWeight: 600, color: '#475569' },
+  weekTotalVal: {
+    fontSize: 15, fontWeight: 800, color: '#000',
+    fontFamily: "'Outfit', sans-serif"
+  },
+
+  addWeekRow: { margin: '16px 0', display: 'flex' },
+  addWeekBtn: {
+    display: 'flex', alignItems: 'center',
+    padding: '9px 18px',
+    backgroundColor: '#000', border: 'none',
+    borderRadius: 8, fontSize: 13, fontWeight: 600,
+    color: '#fff', cursor: 'pointer'
+  },
+
+  periodTotal: {
+    backgroundColor: '#000', color: '#fff',
+    borderRadius: 8, padding: '14px 20px',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 24
+  },
+  totalLabel: { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 },
   totalValue: {
     fontFamily: "'Outfit', sans-serif",
-    fontSize: '18px',
-    fontWeight: '800',
-    color: '#A7CBE5'
+    fontSize: 20, fontWeight: 800, color: '#A7CBE5'
   },
-  signatureSection: {
-    border: '1px solid #cbd5e1',
-    borderRadius: '8px',
-    padding: '16px',
-    marginBottom: '24px',
-    backgroundColor: '#fafafa'
+
+  sigSection: {
+    border: '1px solid #cbd5e1', borderRadius: 8,
+    padding: 16, marginBottom: 24, backgroundColor: '#fafafa'
   },
-  signatureSectionTitle: {
-    fontSize: '12px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    color: '#334155',
-    marginBottom: '12px'
+  sigSectionHeader: {
+    display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12
   },
-  signatureGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: '20px'
+  sigSectionTitle: {
+    fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: 0.5, color: '#000'
   },
+  sigSectionHint: { fontSize: 11, color: '#64748b' },
   sigCard: {
-    backgroundColor: '#ffffff',
-    border: '1px solid #cbd5e1',
-    borderRadius: '8px',
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  sigLabel: {
-    fontSize: '11px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    color: '#000000',
-    letterSpacing: '0.5px'
+    backgroundColor: '#fff',
+    border: '1px solid #e2e8f0', borderRadius: 8, padding: 14
   },
   sigDateLabel: {
-    fontSize: '10px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    color: '#64748b'
+    display: 'block', fontSize: 10, fontWeight: 700,
+    textTransform: 'uppercase', color: '#64748b', marginBottom: 4
   },
   sigDateInput: {
-    padding: '8px 10px',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '12px',
+    padding: '8px 10px', border: '1px solid #cbd5e1',
+    borderRadius: 6, fontSize: 12,
     fontFamily: "'Inter', sans-serif",
-    backgroundColor: '#ffffff',
-    color: '#000000',
-    outline: 'none',
-    width: '100%',
-    maxWidth: '180px'
+    color: '#000', outline: 'none', maxWidth: 180
   },
+
   namingCard: {
-    backgroundColor: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    padding: '16px',
-    marginBottom: '24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px'
+    backgroundColor: '#f8fafc', border: '1px solid #e2e8f0',
+    borderRadius: 8, padding: 16, marginBottom: 24
   },
   namingLabel: {
-    fontSize: '11px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    color: '#475569',
-    letterSpacing: '0.5px'
+    display: 'block', fontSize: 11, fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    color: '#475569', marginBottom: 6
   },
-  namingInputWrapper: {
-    display: 'flex',
-    gap: '8px'
-  },
+  namingRow: { display: 'flex', gap: 8 },
   namingInput: {
-    flex: 1,
-    padding: '10px 12px',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontFamily: "'Inter', sans-serif",
-    outline: 'none',
-    backgroundColor: '#ffffff',
-    color: '#000000'
+    flex: 1, padding: '10px 12px',
+    border: '1px solid #cbd5e1', borderRadius: 6,
+    fontSize: 13, fontFamily: "'Inter', sans-serif",
+    color: '#000', outline: 'none', backgroundColor: '#fff'
   },
-  resetNameBtn: {
+  resetBtn: {
     padding: '8px 12px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '11px',
-    fontWeight: '600',
-    color: '#475569',
-    cursor: 'pointer'
+    backgroundColor: '#fff', border: '1px solid #cbd5e1',
+    borderRadius: 6, fontSize: 11, fontWeight: 600,
+    color: '#475569', cursor: 'pointer', whiteSpace: 'nowrap'
   },
+
   actionsBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: '12px',
-    borderTop: '1px solid #f1f5f9',
-    paddingTop: '20px'
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    flexWrap: 'wrap', gap: 12,
+    borderTop: '1px solid #f1f5f9', paddingTop: 20
   },
   clearBtn: {
-    padding: '10px 16px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '13px',
-    fontWeight: '500',
-    color: '#64748b',
-    cursor: 'pointer'
+    padding: '10px 16px', backgroundColor: '#fff',
+    border: '1px solid #e2e8f0', borderRadius: 8,
+    fontSize: 13, fontWeight: 500, color: '#64748b', cursor: 'pointer'
   },
-  mainActions: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap'
-  },
+  mainActions: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   printBtn: {
-    padding: '10px 16px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #000000',
-    borderRadius: '8px',
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#000000',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
+    display: 'flex', alignItems: 'center',
+    padding: '10px 16px', backgroundColor: '#fff',
+    border: '1px solid #000', borderRadius: 8,
+    fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer'
   },
   downloadBtn: {
-    padding: '10px 16px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #000000',
-    borderRadius: '8px',
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#000000',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
+    display: 'flex', alignItems: 'center',
+    padding: '10px 16px', backgroundColor: '#fff',
+    border: '1px solid #000', borderRadius: 8,
+    fontSize: 13, fontWeight: 600, color: '#000', cursor: 'pointer'
   },
   submitBtn: {
-    padding: '10px 18px',
-    backgroundColor: '#000000',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#ffffff',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
+    display: 'flex', alignItems: 'center',
+    padding: '10px 18px', backgroundColor: '#000',
+    border: 'none', borderRadius: 8,
+    fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer'
   },
-  toast: {
-    position: 'fixed',
-    top: '20px',
-    right: '20px',
-    padding: '12px 24px',
-    borderRadius: '8px',
-    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-    zIndex: 1001,
-    fontSize: '13px',
-    fontWeight: '600',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    animation: 'slideIn 0.3s ease-out'
-  },
-  printSignatures: {
-    display: 'none',
-    marginTop: '40px'
+
+  // Print-only signature block (hidden until print media query)
+  printSig: { display: 'none', marginTop: 40 },
+  printFooterNote: {
+    marginTop: 36,
+    textAlign: 'center', fontSize: 9,
+    borderTop: '1px solid #000', paddingTop: 7,
+    textTransform: 'uppercase', color: '#333',
+    letterSpacing: 0.5, fontFamily: 'sans-serif'
   }
 };
