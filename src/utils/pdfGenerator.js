@@ -140,8 +140,11 @@ export const generatePDF = async (type, data, customFileName) => {
       <div style="border: 1px solid #000000; padding: 20px; font-size: 12px; margin-top: 40px;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
-            <td style="width: 45%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
+            <td style="width: 45%; vertical-align: bottom; position: relative;">
+              <div style="height: 35px; width: 90%; position: relative;">
+                ${data.signature ? `<img src="${data.signature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 45px; max-width: 200px;" />` : ''}
+                <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
+              </div>
               <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Employee Signature</div>
             </td>
             <td style="width: 10%; vertical-align: bottom;">
@@ -246,8 +249,11 @@ export const generatePDF = async (type, data, customFileName) => {
       <div style="border: 1px solid #000000; padding: 20px; font-size: 11px; margin-top: 40px;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
-            <td style="width: 45%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
+            <td style="width: 45%; vertical-align: bottom; position: relative;">
+              <div style="height: 35px; width: 90%; position: relative;">
+                ${data.signature ? `<img src="${data.signature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 45px; max-width: 200px;" />` : ''}
+                <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
+              </div>
               <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Staff / Tutor Signature</div>
             </td>
             <td style="width: 10%; vertical-align: bottom;">

@@ -3,6 +3,7 @@ import { Plus, Trash2, Download, Printer, Send } from 'lucide-react';
 import { saveSessionsDraft, getSessionsDraft, clearSessionsDraft } from '../utils/storage';
 import { generatePDF } from '../utils/pdfGenerator';
 import EmailModal from './EmailModal';
+import SignaturePad from './SignaturePad';
 
 // Helper to convert time strings "HH:MM" to decimal hours
 const timeToDecimal = (timeStr) => {
@@ -56,6 +57,7 @@ export default function SessionRecordForm() {
   const [isFileNameEdited, setIsFileNameEdited] = useState(false);
 
   // UI States
+  const [signature, setSignature] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
@@ -196,7 +198,8 @@ export default function SessionRecordForm() {
         semester,
         mentorName,
         entries,
-        totalDuration: totalDurationSum
+        totalDuration: totalDurationSum,
+        signature
       };
       await generatePDF('sessions', payload, pdfFileName);
       showToast('Session record PDF downloaded successfully.');
@@ -219,7 +222,8 @@ export default function SessionRecordForm() {
         semester,
         mentorName,
         entries,
-        totalDuration: totalDurationSum
+        totalDuration: totalDurationSum,
+        signature
       };
       
       const finalName = await generatePDF('sessions', payload, pdfFileName);
@@ -253,6 +257,7 @@ export default function SessionRecordForm() {
       setEntries([{ id: '1', date: '', timeIn: '', timeOut: '', duration: 0, skills: '', notes: '' }]);
       setPdfFileName('Student_Academic_Report_Month_Year.pdf');
       setIsFileNameEdited(false);
+      setSignature(null);
       clearSessionsDraft();
       showToast('Form cleared.');
     }
@@ -478,6 +483,16 @@ export default function SessionRecordForm() {
           <span style={styles.totalValue}>{totalDurationSum.toFixed(2)} hrs</span>
         </div>
 
+        {/* Signature drawing pad */}
+        <div style={styles.signatureCard} className="no-print">
+          <label style={styles.signatureLabel}>Staff / Tutor Signature (Draw below)</label>
+          <SignaturePad
+            key={signature ? 'has-sig' : 'no-sig'}
+            onSave={(sigData) => setSignature(sigData)}
+            onClear={() => setSignature(null)}
+          />
+        </div>
+
         {/* Naming Configuration Box */}
         <div style={styles.namingCard} className="no-print">
           <label style={styles.namingLabel} htmlFor="pdf-filename-input">PDF File Name before downloading</label>
@@ -533,7 +548,20 @@ export default function SessionRecordForm() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
           <tbody>
             <tr>
-              <td style={{ width: '45%', verticalAlign: 'bottom' }}>
+              <td style={{ width: '45%', verticalAlign: 'bottom', position: 'relative' }}>
+                {signature && (
+                  <img 
+                    src={signature} 
+                    alt="Staff / Tutor Signature" 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: '22px', 
+                      left: '10px', 
+                      height: '35px', 
+                      pointerEvents: 'none' 
+                    }} 
+                  />
+                )}
                 <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
                 <div style={{ marginTop: '5px', fontWeight: 'bold' }}>STAFF / TUTOR SIGNATURE</div>
               </td>
@@ -800,6 +828,23 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '6px'
+  },
+  signatureCard: {
+    backgroundColor: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px'
+  },
+  signatureLabel: {
+    fontSize: '11px',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    color: '#475569',
+    letterSpacing: '0.5px'
   },
   namingLabel: {
     fontSize: '11px',
