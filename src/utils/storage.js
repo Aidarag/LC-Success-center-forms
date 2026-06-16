@@ -1,6 +1,5 @@
 const KEYS = {
-  TIMESHEET: 'lsc_portal_timesheet_draft',
-  SESSIONS: 'lsc_portal_sessions_draft'
+  TIMESHEET: 'lsc_portal_timesheet_draft'
 };
 
 /**
@@ -42,49 +41,6 @@ export const clearTimesheetDraft = () => {
     return true;
   } catch (error) {
     console.error('Error clearing timesheet draft:', error);
-    return false;
-  }
-};
-
-/**
- * Save sessions draft to localStorage.
- */
-export const saveSessionsDraft = (data) => {
-  try {
-    const payload = {
-      ...data,
-      lastUpdated: new Date().toISOString()
-    };
-    localStorage.setItem(KEYS.SESSIONS, JSON.stringify(payload));
-    return true;
-  } catch (error) {
-    console.error('Error saving sessions draft:', error);
-    return false;
-  }
-};
-
-/**
- * Get sessions draft from localStorage.
- */
-export const getSessionsDraft = () => {
-  try {
-    const data = localStorage.getItem(KEYS.SESSIONS);
-    return data ? JSON.parse(data) : null;
-  } catch (error) {
-    console.error('Error retrieving sessions draft:', error);
-    return null;
-  }
-};
-
-/**
- * Clear sessions draft.
- */
-export const clearSessionsDraft = () => {
-  try {
-    localStorage.removeItem(KEYS.SESSIONS);
-    return true;
-  } catch (error) {
-    console.error('Error clearing sessions draft:', error);
     return false;
   }
 };

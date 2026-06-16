@@ -392,10 +392,20 @@ button:active {
     font-size: 14px !important;
   }
 
+  /* Hide date/time browser controls/indicators on print */
+  input::-webkit-calendar-picker-indicator,
+  input::-webkit-inner-spin-button,
+  input::-webkit-clear-button {
+    display: none !important;
+    -webkit-appearance: none !important;
+  }
+
   /* Show Signatures Section */
   .print-only-signatures {
     display: block !important;
     margin-top: 40px !important;
+    page-break-before: always !important;
+    break-before: page !important;
     page-break-inside: avoid !important;
   }
 }

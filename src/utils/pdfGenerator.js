@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas';
 // Helper to format dates nicely: e.g., '06/15/2026'
 const formatDateStr = (dateStr) => {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  const date = new Date(dateStr + 'T00:00:00');
   if (isNaN(date.getTime())) return dateStr;
   return date.toLocaleDateString('en-US', {
     month: '2-digit',
@@ -14,9 +14,9 @@ const formatDateStr = (dateStr) => {
 };
 
 /**
- * Generates and downloads a professional PDF for either timesheets or session logs.
- * @param {string} type - 'timesheet' or 'sessions'
- * @param {object} data - Form data
+ * Generates and downloads a professional PDF for the Success Center Monthly Timesheet.
+ * @param {string} type - 'timesheet'
+ * @param {object} data - Form data payload
  * @param {string} customFileName - User-defined file name
  */
 export const generatePDF = async (type, data, customFileName) => {
@@ -25,14 +25,12 @@ export const generatePDF = async (type, data, customFileName) => {
   container.style.position = 'absolute';
   container.style.left = '-9999px';
   container.style.top = '0';
-  container.style.width = '780px'; // Letter size printable area width
+  container.style.width = '820px'; // Expanded letter width to support student details column
   container.style.padding = '30px';
   container.style.backgroundColor = '#ffffff';
   container.style.color = '#000000';
-  container.style.fontFamily = "'Courier New', Courier, monospace, Arial, sans-serif"; // Classic official monospaced text style
+  container.style.fontFamily = "'Courier New', Courier, monospace, Arial, sans-serif";
   container.style.boxSizing = 'border-box';
-
-  const isTimesheet = type === 'timesheet';
 
   // SVG emblem string for the PDF template (rendered directly as HTML)
   const logoSvgHtml = `
@@ -60,231 +58,169 @@ export const generatePDF = async (type, data, customFileName) => {
     </svg>
   `;
 
-  let contentHtml = '';
-
-  if (isTimesheet) {
-    // Generate Timesheet table rows
-    const rowsHtml = (data.entries || []).map((entry) => `
-      <tr style="border-bottom: 1px solid #000000; font-size: 12px;">
-        <td style="padding: 6px; text-align: left; border-right: 1px solid #000000;">${formatDateStr(entry.date) || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000;">${entry.timeIn1 || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000;">${entry.timeOut1 || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000;">${entry.timeIn2 || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000;">${entry.timeOut2 || '—'}</td>
-        <td style="padding: 6px; text-align: right; font-weight: bold;">${entry.totalHours ? Number(entry.totalHours).toFixed(2) : '0.00'}</td>
+  // Helper to map log rows to HTML
+  const generateWeekTableRows = (entries) => {
+    return (entries || []).map((entry) => `
+      <tr style="border-bottom: 1px solid #000000; font-size: 11px;">
+        <td style="padding: 5px; text-align: left; border-right: 1px solid #000000; font-weight: bold;">${formatDateStr(entry.date) || '—'}</td>
+        <td style="padding: 5px; text-align: center; border-right: 1px solid #000000;">${entry.timeIn1 || '—'}</td>
+        <td style="padding: 5px; text-align: center; border-right: 1px solid #000000;">${entry.timeOut1 || '—'}</td>
+        <td style="padding: 5px; text-align: center; border-right: 1px solid #000000;">${entry.timeIn2 || '—'}</td>
+        <td style="padding: 5px; text-align: center; border-right: 1px solid #000000;">${entry.timeOut2 || '—'}</td>
+        <td style="padding: 5px; text-align: center; border-right: 1px solid #000000; font-weight: bold;">${entry.totalHours ? Number(entry.totalHours).toFixed(2) : '0.00'}</td>
+        <td style="padding: 5px; text-align: left; border-right: 1px solid #000000; text-transform: uppercase; font-size: 10px;">${entry.studentNameId || '—'}</td>
+        <td style="padding: 5px; text-align: left; border-right: 1px solid #000000; text-transform: uppercase; font-size: 10px;">${entry.subject || '—'}</td>
+        <td style="padding: 5px; text-align: left; font-style: italic; font-size: 10px;">${entry.notes || '—'}</td>
       </tr>
     `).join('');
+  };
 
-    contentHtml = `
-      <!-- Header Block -->
-      <div style="border: 2px solid #000000; padding: 15px; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="width: 70px; vertical-align: middle;">${logoSvgHtml}</td>
-            <td style="padding-left: 15px; vertical-align: middle;">
-              <h1 style="font-family: Arial, sans-serif; font-size: 20px; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 1px;">LIVINGSTONE COLLEGE</h1>
-              <h2 style="font-family: Arial, sans-serif; font-size: 13px; font-weight: 700; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 0.5px; color: #333333;">SUCCESS CENTER MONTHLY TIMESHEET</h2>
-            </td>
-            <td style="text-align: right; vertical-align: middle; width: 180px;">
-              <div style="font-size: 10px; text-transform: uppercase; color: #555555;">DEPARTMENT NAME</div>
-              <div style="font-size: 13px; font-weight: bold; border: 1px solid #000000; padding: 4px 8px; margin-top: 4px; display: inline-block;">${data.departmentName || 'Success Center'}</div>
-            </td>
-          </tr>
-        </table>
-      </div>
+  const week1HtmlRows = generateWeekTableRows(data.week1Entries);
+  const week2HtmlRows = generateWeekTableRows(data.week2Entries);
 
-      <!-- Metadata Box -->
-      <div style="border: 1px solid #000000; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-          <tr style="border-bottom: 1px solid #000000;">
-            <td style="padding: 8px; width: 50%; border-right: 1px solid #000000;">
-              <strong>EMPLOYEE NAME:</strong><br/>
-              <span style="font-size: 13px; font-family: sans-serif; text-transform: uppercase; font-weight: bold;">${data.employeeName || '—'}</span>
-            </td>
-            <td style="padding: 8px; width: 50%;">
-              <strong>REPORTING PERIOD:</strong><br/>
-              <span style="font-size: 13px; font-family: sans-serif; font-weight: bold;">
-                ${formatDateStr(data.beginningDate) || '—'} TO ${formatDateStr(data.endingDate) || '—'}
-              </span>
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <!-- Main Log Table -->
-      <div style="border: 2px solid #000000; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background-color: #ffffff; border-bottom: 2px solid #000000; font-size: 11px; text-transform: uppercase; font-weight: bold;">
-              <th style="padding: 8px; text-align: left; border-right: 1px solid #000000; width: 140px;">DATE</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000;">SHIFT 1 IN</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000;">SHIFT 1 OUT</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000;">SHIFT 2 IN</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000;">SHIFT 2 OUT</th>
-              <th style="padding: 8px; text-align: right; width: 110px;">DAILY HOURS</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml || '<tr><td colspan="6" style="padding: 15px; text-align: center; font-size: 12px;">No work shifts logged.</td></tr>'}
-          </tbody>
-          <tfoot>
-            <tr style="border-top: 2px solid #000000; font-size: 13px; font-weight: bold;">
-              <td colspan="5" style="padding: 10px; text-align: right; border-right: 1px solid #000000; text-transform: uppercase;">GRAND TOTAL MONTHLY HOURS:</td>
-              <td style="padding: 10px; text-align: right; font-size: 14px;">${Number(data.totalHours || 0).toFixed(2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <!-- Signature Lines Block -->
-      <div style="border: 1px solid #000000; padding: 20px; font-size: 12px; margin-top: 40px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="width: 45%; vertical-align: bottom; position: relative;">
-              <div style="height: 35px; width: 90%; position: relative;">
-                ${data.signature ? `<img src="${data.signature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 45px; max-width: 200px;" />` : ''}
-                <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
-              </div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Employee Signature</div>
-            </td>
-            <td style="width: 10%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Date</div>
-            </td>
-            <td style="width: 35%; vertical-align: bottom; padding-left: 20px;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Supervisor: Benjamin Davis</div>
-            </td>
-            <td style="width: 10%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Date</div>
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <!-- Administrative Note Footer -->
-      <div style="margin-top: 30px; text-align: center; font-size: 10px; border-top: 1px solid #000000; padding-top: 10px; text-transform: uppercase; color: #333333;">
-        LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NORTH CAROLINA 28144 • SUPERVISOR: BENJAMIN DAVIS
-      </div>
-    `;
-  } else {
-    // Generate Student Session table rows
-    const rowsHtml = (data.entries || []).map((entry) => `
-      <tr style="border-bottom: 1px solid #000000; font-size: 11px; vertical-align: top;">
-        <td style="padding: 6px; text-align: left; border-right: 1px solid #000000;">${formatDateStr(entry.date) || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000; white-space: nowrap;">${entry.timeIn || '—'} - ${entry.timeOut || '—'}</td>
-        <td style="padding: 6px; text-align: center; border-right: 1px solid #000000; font-weight: bold;">${entry.duration ? Number(entry.duration).toFixed(2) : '0.00'}</td>
-        <td style="padding: 6px; text-align: left; border-right: 1px solid #000000; font-weight: bold; text-transform: uppercase;">${entry.skills || '—'}</td>
-        <td style="padding: 6px; text-align: left; font-style: italic;">${entry.notes || '—'}</td>
+  const tableHeaderMarkup = `
+    <thead>
+      <tr style="background-color: #f2f2f2; border-bottom: 2px solid #000000; font-size: 10px; text-transform: uppercase; font-weight: bold;">
+        <th style="padding: 6px; text-align: left; border-right: 1px solid #000000; width: 90px;">DATE</th>
+        <th style="padding: 6px; text-align: center; border-right: 1px solid #000000; width: 65px;">S1 IN</th>
+        <th style="padding: 6px; text-align: center; border-right: 1px solid #000000; width: 65px;">S1 OUT</th>
+        <th style="padding: 6px; text-align: center; border-right: 1px solid #000000; width: 65px;">S2 IN</th>
+        <th style="padding: 6px; text-align: center; border-right: 1px solid #000000; width: 65px;">S2 OUT</th>
+        <th style="padding: 6px; text-align: center; border-right: 1px solid #000000; width: 60px;">DAILY</th>
+        <th style="padding: 6px; text-align: left; border-right: 1px solid #000000; width: 140px;">STUDENT INFO</th>
+        <th style="padding: 6px; text-align: left; border-right: 1px solid #000000; width: 120px;">SUBJECT</th>
+        <th style="padding: 6px; text-align: left;">NOTES</th>
       </tr>
-    `).join('');
+    </thead>
+  `;
 
-    contentHtml = `
-      <!-- Header Block -->
-      <div style="border: 2px solid #000000; padding: 15px; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="width: 70px; vertical-align: middle;">${logoSvgHtml}</td>
-            <td style="padding-left: 15px; vertical-align: middle;">
-              <h1 style="font-family: Arial, sans-serif; font-size: 18px; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">LIVINGSTONE COLLEGE</h1>
-              <h2 style="font-family: Arial, sans-serif; font-size: 12px; font-weight: 700; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 0.5px; color: #111111;">ACADEMIC SUPPORT CENTER STUDENT SESSION & PROGRESS RECORD</h2>
-            </td>
-            <td style="text-align: right; vertical-align: middle; width: 140px;">
-              <div style="font-size: 9px; text-transform: uppercase; color: #555555;">SEMESTER / YEAR</div>
-              <div style="font-size: 12px; font-weight: bold; border: 1px solid #000000; padding: 4px 8px; margin-top: 4px; display: inline-block;">${data.semester || '—'}</div>
-            </td>
+  const contentHtml = `
+    <!-- Header Box -->
+    <div style="border: 2px solid #000000; padding: 15px; margin-bottom: 15px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="width: 70px; vertical-align: middle;">${logoSvgHtml}</td>
+          <td style="padding-left: 15px; vertical-align: middle;">
+            <h1 style="font-family: Arial, sans-serif; font-size: 18px; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 1px;">LIVINGSTONE COLLEGE</h1>
+            <h2 style="font-family: Arial, sans-serif; font-size: 12px; font-weight: 700; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 0.5px; color: #333333;">SUCCESS CENTER MONTHLY TIMESHEET</h2>
+          </td>
+          <td style="text-align: right; vertical-align: middle; width: 180px;">
+            <div style="font-size: 9px; text-transform: uppercase; color: #555555;">DEPARTMENT</div>
+            <div style="font-size: 12px; font-weight: bold; border: 1px solid #000000; padding: 4px 8px; margin-top: 4px; display: inline-block;">Success Center</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Metadata Table -->
+    <div style="border: 1px solid #000000; margin-bottom: 15px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+        <tr>
+          <td style="padding: 8px; width: 50%; border-right: 1px solid #000000;">
+            <strong>EMPLOYEE NAME:</strong><br/>
+            <span style="font-size: 12px; font-family: sans-serif; text-transform: uppercase; font-weight: bold;">${data.employeeName || '—'}</span>
+          </td>
+          <td style="padding: 8px; width: 50%;">
+            <strong>REPORTING PERIOD:</strong><br/>
+            <span style="font-size: 12px; font-family: sans-serif; font-weight: bold;">
+              ${formatDateStr(data.beginningDate) || '—'} TO ${formatDateStr(data.endingDate) || '—'}
+            </span>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- WEEK 1 TABLE -->
+    <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px; text-transform: uppercase;">WEEK 1 WORK DETAILS</div>
+    <div style="border: 2px solid #000000; margin-bottom: 15px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        ${tableHeaderMarkup}
+        <tbody>
+          ${week1HtmlRows || '<tr><td colspan="9" style="padding: 10px; text-align: center; font-size: 11px;">No shifts logged for Week 1.</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr style="border-top: 2px solid #000000; font-size: 11px; font-weight: bold; background-color: #fafafa;">
+            <td colspan="5" style="padding: 6px; text-align: right; border-right: 1px solid #000000;">WEEK 1 TOTAL HOURS:</td>
+            <td style="padding: 6px; text-align: center; border-right: 1px solid #000000; font-size: 12px;">${Number(data.totalHoursWeek1 || 0).toFixed(2)}</td>
+            <td colspan="3"></td>
           </tr>
-        </table>
-      </div>
+        </tfoot>
+      </table>
+    </div>
 
-      <!-- Metadata Box -->
-      <div style="border: 1px solid #000000; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-          <tr style="border-bottom: 1px solid #000000;">
-            <td style="padding: 8px; width: 40%; border-right: 1px solid #000000;">
-              <strong>STUDENT NAME:</strong><br/>
-              <span style="font-size: 12px; font-family: sans-serif; text-transform: uppercase; font-weight: bold;">${data.studentName || '—'}</span>
-            </td>
-            <td style="padding: 8px; width: 30%; border-right: 1px solid #000000;">
-              <strong>STUDENT ID:</strong><br/>
-              <span style="font-size: 12px; font-family: sans-serif; font-weight: bold;">${data.studentId || '—'}</span>
-            </td>
-            <td style="padding: 8px; width: 30%;">
-              <strong>STAFF MEMBER / TUTOR:</strong><br/>
-              <span style="font-size: 12px; font-family: sans-serif; text-transform: uppercase; font-weight: bold;">${data.mentorName || '—'}</span>
-            </td>
+    <!-- WEEK 2 TABLE -->
+    <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px; text-transform: uppercase;">WEEK 2 WORK DETAILS</div>
+    <div style="border: 2px solid #000000; margin-bottom: 15px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        ${tableHeaderMarkup}
+        <tbody>
+          ${week2HtmlRows || '<tr><td colspan="9" style="padding: 10px; text-align: center; font-size: 11px;">No shifts logged for Week 2.</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr style="border-top: 2px solid #000000; font-size: 11px; font-weight: bold; background-color: #fafafa;">
+            <td colspan="5" style="padding: 6px; text-align: right; border-right: 1px solid #000000;">WEEK 2 TOTAL HOURS:</td>
+            <td style="padding: 6px; text-align: center; border-right: 1px solid #000000; font-size: 12px;">${Number(data.totalHoursWeek2 || 0).toFixed(2)}</td>
+            <td colspan="3"></td>
           </tr>
-        </table>
-      </div>
+        </tfoot>
+      </table>
+    </div>
 
-      <!-- Session Log Table -->
-      <div style="border: 2px solid #000000; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background-color: #ffffff; border-bottom: 2px solid #000000; font-size: 10px; text-transform: uppercase; font-weight: bold;">
-              <th style="padding: 8px; text-align: left; border-right: 1px solid #000000; width: 100px;">DATE</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000; width: 120px;">TIME</th>
-              <th style="padding: 8px; text-align: center; border-right: 1px solid #000000; width: 70px;">HOURS</th>
-              <th style="padding: 8px; text-align: left; border-right: 1px solid #000000; width: 180px;">SKILLS / ASSIGNMENTS</th>
-              <th style="padding: 8px; text-align: left;">PROGRESS NOTES</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml || '<tr><td colspan="5" style="padding: 15px; text-align: center; font-size: 12px;">No support sessions logged.</td></tr>'}
-          </tbody>
-          <tfoot>
-            <tr style="border-top: 2px solid #000000; font-size: 12px; font-weight: bold;">
-              <td colspan="2" style="padding: 8px; text-align: right; border-right: 1px solid #000000; text-transform: uppercase;">TOTAL SUPPORT HOURS:</td>
-              <td style="padding: 8px; text-align: center; border-right: 1px solid #000000; font-size: 13px;">${Number(data.totalDuration || 0).toFixed(2)}</td>
-              <td colspan="2" style="padding: 8px; font-size: 10px; font-weight: normal; color: #555555; text-transform: uppercase;">
-                ${data.entries?.length || 0} TUTORING SESSIONS COMPLETED
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+    <!-- PERIOD TOTAL BAR -->
+    <div style="border: 2px solid #000000; background-color: #ffffff; padding: 10px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 12px;">
+      <span style="text-transform: uppercase;">TOTAL HOURS WORKED THIS PERIOD:</span>
+      <span style="font-size: 14px; border-bottom: 3px double #000000; padding: 0 4px;">${Number(data.totalHoursPeriod || 0).toFixed(2)} HOURS</span>
+    </div>
 
-      <!-- Signature Lines Block -->
-      <div style="border: 1px solid #000000; padding: 20px; font-size: 11px; margin-top: 40px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="width: 45%; vertical-align: bottom; position: relative;">
-              <div style="height: 35px; width: 90%; position: relative;">
-                ${data.signature ? `<img src="${data.signature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 45px; max-width: 200px;" />` : ''}
-                <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
-              </div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Staff / Tutor Signature</div>
-            </td>
-            <td style="width: 10%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Date</div>
-            </td>
-            <td style="width: 35%; vertical-align: bottom; padding-left: 20px;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Supervisor Approval</div>
-            </td>
-            <td style="width: 10%; vertical-align: bottom;">
-              <div style="border-bottom: 1px solid #000000; height: 35px; width: 90%;"></div>
-              <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Date</div>
-            </td>
-          </tr>
-        </table>
-      </div>
+    <!-- SIGNATURES BLOCK -->
+    <div style="border: 1px solid #000000; padding: 15px; font-size: 11px; margin-top: 15px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <!-- Employee Signature -->
+          <td style="width: 30%; vertical-align: bottom; position: relative;">
+            <div style="height: 35px; width: 90%; position: relative;">
+              ${data.employeeSignature ? `<img src="${data.employeeSignature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 40px; max-width: 180px;" />` : ''}
+              <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
+            </div>
+            <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Employee Signature</div>
+            <div style="margin-top: 2px; font-style: italic; font-size: 9px; color: #555555;">Date: ${data.employeeSignDate || '—'}</div>
+          </td>
+          
+          <!-- Employer / Supervisor Signature -->
+          <td style="width: 35%; vertical-align: bottom; padding-left: 15px; position: relative;">
+            <div style="height: 35px; width: 90%; position: relative;">
+              ${data.employerSignature ? `<img src="${data.employerSignature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 40px; max-width: 200px;" />` : ''}
+              <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
+            </div>
+            <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Supervisor Signature</div>
+            <div style="margin-top: 2px; font-style: italic; font-size: 9px; color: #555555;">Date: ${data.employerSignDate || '—'}</div>
+          </td>
 
-      <!-- Administrative Note Footer -->
-      <div style="margin-top: 30px; text-align: center; font-size: 10px; border-top: 1px solid #000000; padding-top: 10px; text-transform: uppercase; color: #333333;">
-        LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NORTH CAROLINA 28144 • SUPERVISOR: BENJAMIN DAVIS
-      </div>
-    `;
-  }
+          <!-- Payroll Signature -->
+          <td style="width: 35%; vertical-align: bottom; padding-left: 15px; position: relative;">
+            <div style="height: 35px; width: 90%; position: relative;">
+              ${data.payrollSignature ? `<img src="${data.payrollSignature}" style="position: absolute; bottom: 2px; left: 10px; max-height: 40px; max-width: 200px;" />` : ''}
+              <div style="border-bottom: 1px solid #000000; width: 100%; height: 100%;"></div>
+            </div>
+            <div style="margin-top: 5px; font-weight: bold; text-transform: uppercase;">Payroll Dept Signature</div>
+            <div style="margin-top: 2px; font-style: italic; font-size: 9px; color: #555555;">Date: ${data.payrollSignDate || '—'}</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Administrative Note Footer -->
+    <div style="margin-top: 25px; text-align: center; font-size: 9px; border-top: 1px solid #000000; padding-top: 8px; text-transform: uppercase; color: #333333; letter-spacing: 0.5px;">
+      LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NORTH CAROLINA 28144 • SUPERVISOR: BENJAMIN DAVIS (bdavis1@livingstone.edu)
+    </div>
+  `;
 
   container.innerHTML = contentHtml;
   document.body.appendChild(container);
 
   try {
     const canvas = await html2canvas(container, {
-      scale: 2, // Double resolution for sharp printing quality
+      scale: 2, // Retain high resolution for sharp prints
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff'
@@ -319,7 +255,7 @@ export const generatePDF = async (type, data, customFileName) => {
     }
 
     // Ensure customFileName ends in .pdf
-    let finalFileName = (customFileName || `Livingstone_${type}_report`).trim();
+    let finalFileName = (customFileName || `Livingstone_Timesheet_report`).trim();
     if (!finalFileName.toLowerCase().endsWith('.pdf')) {
       finalFileName += '.pdf';
     }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Download, Printer, Send } from 'lucide-react';
+import { Download, Printer, Send, Trash2 } from 'lucide-react';
 import { saveTimesheetDraft, getTimesheetDraft, clearTimesheetDraft } from '../utils/storage';
 import { generatePDF } from '../utils/pdfGenerator';
 import EmailModal from './EmailModal';
@@ -24,27 +24,73 @@ const calculateDiff = (timeIn, timeOut) => {
 // Helper to format string dates to human Month Year
 const getMonthYearStr = (dateStr) => {
   if (!dateStr) return 'Month_Year';
-  const date = new Date(dateStr);
+  const date = new Date(dateStr + 'T00:00:00');
   if (isNaN(date.getTime())) return 'Month_Year';
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
 };
 
-export default function TimesheetForm() {
-  // Form states
+const populateSequentialDates = (start) => {
+  if (!start) return { w1: Array(7).fill(''), w2: Array(7).fill('') };
+  const w1 = [];
+  const w2 = [];
+  const base = new Date(start + 'T00:00:00');
+  if (isNaN(base.getTime())) return { w1: Array(7).fill(''), w2: Array(7).fill('') };
+  
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    w1.push(d.toISOString().split('T')[0]);
+  }
+  for (let i = 7; i < 14; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    w2.push(d.toISOString().split('T')[0]);
+  }
+  return { w1, w2 };
+};
+
+const defaultRow = (id, date = '') => ({
+  id,
+  date,
+  timeIn1: '',
+  timeOut1: '',
+  timeIn2: '',
+  timeOut2: '',
+  totalHours: 0,
+  studentNameId: '',
+  subject: '',
+  notes: ''
+});
+
+export default function TimesheetForm({ onFormSubmitSuccess }) {
+  // Form metadata states
   const [employeeName, setEmployeeName] = useState('');
-  const [departmentName] = useState('Success Center');
   const [beginningDate, setBeginningDate] = useState('');
   const [endingDate, setEndingDate] = useState('');
-  const [entries, setEntries] = useState([
-    { id: '1', date: '', timeIn1: '', timeOut1: '', timeIn2: '', timeOut2: '', totalHours: 0 }
-  ]);
 
-  // PDF Naming states
+  // Weekly entries
+  const [week1Entries, setWeek1Entries] = useState(
+    Array.from({ length: 7 }, (_, i) => defaultRow(`w1-${i}`))
+  );
+  const [week2Entries, setWeek2Entries] = useState(
+    Array.from({ length: 7 }, (_, i) => defaultRow(`w2-${i}`))
+  );
+
+  // Transient signatures (not saved in localStorage)
+  const [employeeSignature, setEmployeeSignature] = useState(null);
+  const [employerSignature, setEmployerSignature] = useState(null);
+  const [payrollSignature, setPayrollSignature] = useState(null);
+
+  // Dates for signatures
+  const [employeeSignDate, setEmployeeSignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [employerSignDate, setEmployerSignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [payrollSignDate, setPayrollSignDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // PDF Naming configuration
   const [pdfFileName, setPdfFileName] = useState('Employee_Timesheet_Month_Year.pdf');
   const [isFileNameEdited, setIsFileNameEdited] = useState(false);
 
-  // UI States
-  const [signature, setSignature] = useState(null);
+  // UI status states
   const [toastMessage, setToastMessage] = useState(null);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
@@ -58,22 +104,40 @@ export default function TimesheetForm() {
       setEmployeeName(draft.employeeName || '');
       setBeginningDate(draft.beginningDate || '');
       setEndingDate(draft.endingDate || '');
-      if (draft.entries && draft.entries.length > 0) {
-        setEntries(draft.entries);
+      if (draft.week1Entries && draft.week1Entries.length === 7) {
+        setWeek1Entries(draft.week1Entries);
       }
+      if (draft.week2Entries && draft.week2Entries.length === 7) {
+        setWeek2Entries(draft.week2Entries);
+      }
+      if (draft.employeeSignDate) setEmployeeSignDate(draft.employeeSignDate);
+      if (draft.employerSignDate) setEmployerSignDate(draft.employerSignDate);
+      if (draft.payrollSignDate) setPayrollSignDate(draft.payrollSignDate);
       if (draft.pdfFileName) {
         setPdfFileName(draft.pdfFileName);
         setIsFileNameEdited(true);
       }
-      showToast('Restored draft timesheet progress.');
+      showToast('Restored draft Timesheet progress.');
     }
   }, []);
 
-  // Show a temporary banner notification
-  const showToast = (msg, type = 'success') => {
-    setToastMessage({ text: msg, type });
-    setTimeout(() => setToastMessage(null), 4000);
-  };
+  // Sync auto-dates when beginningDate changes
+  useEffect(() => {
+    if (!beginningDate) return;
+
+    // Auto calculate ending date as beginningDate + 13 days
+    const base = new Date(beginningDate + 'T00:00:00');
+    if (!isNaN(base.getTime())) {
+      const end = new Date(base);
+      end.setDate(base.getDate() + 13);
+      setEndingDate(end.toISOString().split('T')[0]);
+    }
+
+    // Populate daily rows
+    const { w1, w2 } = populateSequentialDates(beginningDate);
+    setWeek1Entries(prev => prev.map((entry, idx) => ({ ...entry, date: w1[idx] })));
+    setWeek2Entries(prev => prev.map((entry, idx) => ({ ...entry, date: w2[idx] })));
+  }, [beginningDate]);
 
   // Auto-generate filename when employeeName or beginningDate changes
   useEffect(() => {
@@ -84,104 +148,89 @@ export default function TimesheetForm() {
     setPdfFileName(`${formattedName}_Timesheet_${monthYear}.pdf`);
   }, [employeeName, beginningDate, isFileNameEdited]);
 
-  // Update a single row's entry fields
-  const handleEntryChange = (id, field, value) => {
-    const newEntries = entries.map((entry) => {
-      if (entry.id !== id) return entry;
+  const showToast = (msg, type = 'success') => {
+    setToastMessage({ text: msg, type });
+    setTimeout(() => setToastMessage(null), 4000);
+  };
 
-      const updated = { ...entry, [field]: value };
-      
-      // Re-calculate hours for this row
-      const diff1 = calculateDiff(updated.timeIn1, updated.timeOut1);
-      const diff2 = calculateDiff(updated.timeIn2, updated.timeOut2);
-      updated.totalHours = diff1 + diff2;
-      
+  const handleEntryChange = (week, idx, field, value) => {
+    const updateRow = (row) => {
+      const updated = { ...row, [field]: value };
+      if (['timeIn1', 'timeOut1', 'timeIn2', 'timeOut2'].includes(field)) {
+        const diff1 = calculateDiff(updated.timeIn1, updated.timeOut1);
+        const diff2 = calculateDiff(updated.timeIn2, updated.timeOut2);
+        updated.totalHours = diff1 + diff2;
+      }
       return updated;
-    });
-    setEntries(newEntries);
-    
-    // Autosave draft
-    saveTimesheetDraft({
-      employeeName,
-      beginningDate,
-      endingDate,
-      entries: newEntries,
-      pdfFileName
-    });
-  };
+    };
 
-  // Add a new row to the table
-  const addRow = () => {
-    const newId = String(Date.now() + Math.random());
-    const newEntries = [
-      ...entries,
-      { id: newId, date: '', timeIn1: '', timeOut1: '', timeIn2: '', timeOut2: '', totalHours: 0 }
-    ];
-    setEntries(newEntries);
-    saveTimesheetDraft({ employeeName, beginningDate, endingDate, entries: newEntries, pdfFileName });
-  };
-
-  // Remove a row
-  const removeRow = (id) => {
-    if (entries.length === 1) {
-      const cleared = [{ id: '1', date: '', timeIn1: '', timeOut1: '', timeIn2: '', timeOut2: '', totalHours: 0 }];
-      setEntries(cleared);
-      saveTimesheetDraft({ employeeName, beginningDate, endingDate, entries: cleared, pdfFileName });
-      return;
-    }
-    const filtered = entries.filter((entry) => entry.id !== id);
-    setEntries(filtered);
-    saveTimesheetDraft({ employeeName, beginningDate, endingDate, entries: filtered, pdfFileName });
-  };
-
-  // Save manual draft trigger
-  const handleSaveDraft = () => {
-    const success = saveTimesheetDraft({
-      employeeName,
-      beginningDate,
-      endingDate,
-      entries,
-      pdfFileName
-    });
-    if (success) {
-      showToast('Autosave updated. Progress preserved in browser.');
+    if (week === 1) {
+      const updatedEntries = week1Entries.map((row, i) => (i === idx ? updateRow(row) : row));
+      setWeek1Entries(updatedEntries);
+      saveTimesheetDraft({
+        employeeName,
+        beginningDate,
+        endingDate,
+        week1Entries: updatedEntries,
+        week2Entries,
+        employeeSignDate,
+        employerSignDate,
+        payrollSignDate,
+        pdfFileName
+      });
+    } else {
+      const updatedEntries = week2Entries.map((row, i) => (i === idx ? updateRow(row) : row));
+      setWeek2Entries(updatedEntries);
+      saveTimesheetDraft({
+        employeeName,
+        beginningDate,
+        endingDate,
+        week1Entries,
+        week2Entries: updatedEntries,
+        employeeSignDate,
+        employerSignDate,
+        payrollSignDate,
+        pdfFileName
+      });
     }
   };
 
-  const totalHoursSum = entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
+  const totalHoursWeek1 = week1Entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
+  const totalHoursWeek2 = week2Entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
+  const totalHoursPeriod = totalHoursWeek1 + totalHoursWeek2;
 
-  // Validate form entries
   const validateForm = () => {
     const errors = {};
     if (!employeeName.trim()) errors.employeeName = 'Employee Name is required';
     if (!beginningDate) errors.beginningDate = 'Beginning Date is required';
     if (!endingDate) errors.endingDate = 'Ending Date is required';
 
-    const rowErrors = [];
-    entries.forEach((entry, idx) => {
-      if (entry.date || entry.timeIn1 || entry.timeOut1 || entry.timeIn2 || entry.timeOut2) {
-        if (!entry.date) rowErrors.push(`Row ${idx + 1}: Date is missing`);
-        
-        if ((entry.timeIn1 && !entry.timeOut1) || (!entry.timeIn1 && entry.timeOut1)) {
-          rowErrors.push(`Row ${idx + 1}: Shift 1 requires both Time In and Time Out`);
-        } else if (entry.timeIn1 && entry.timeOut1) {
-          const decIn = timeToDecimal(entry.timeIn1);
-          const decOut = timeToDecimal(entry.timeOut1);
-          if (decOut <= decIn) {
-            rowErrors.push(`Row ${idx + 1}: Shift 1 Time Out must be after Time In`);
-          }
-        }
-
-        if ((entry.timeIn2 && !entry.timeOut2) || (!entry.timeIn2 && entry.timeOut2)) {
-          rowErrors.push(`Row ${idx + 1}: Shift 2 requires both Time In and Time Out`);
-        } else if (entry.timeIn2 && entry.timeOut2) {
-          const decIn = timeToDecimal(entry.timeIn2);
-          const decOut = timeToDecimal(entry.timeOut2);
-          if (decOut <= decIn) {
-            rowErrors.push(`Row ${idx + 1}: Shift 2 Time Out must be after Time In`);
-          }
+    const checkShifts = (entry, idx, weekNum) => {
+      const errorsList = [];
+      const label = `Week ${weekNum} Day ${idx + 1}`;
+      if ((entry.timeIn1 && !entry.timeOut1) || (!entry.timeIn1 && entry.timeOut1)) {
+        errorsList.push(`${label}: Shift 1 requires both In and Out times.`);
+      } else if (entry.timeIn1 && entry.timeOut1) {
+        if (timeToDecimal(entry.timeOut1) <= timeToDecimal(entry.timeIn1)) {
+          errorsList.push(`${label}: Shift 1 Out must be after In time.`);
         }
       }
+      if ((entry.timeIn2 && !entry.timeOut2) || (!entry.timeIn2 && entry.timeOut2)) {
+        errorsList.push(`${label}: Shift 2 requires both In and Out times.`);
+      } else if (entry.timeIn2 && entry.timeOut2) {
+        if (timeToDecimal(entry.timeOut2) <= timeToDecimal(entry.timeIn2)) {
+          errorsList.push(`${label}: Shift 2 Out must be after In time.`);
+        }
+      }
+      return errorsList;
+    };
+
+    let rowErrors = [];
+    week1Entries.forEach((entry, idx) => {
+      rowErrors = [...rowErrors, ...checkShifts(entry, idx, 1)];
+    });
+    week2Entries.forEach((entry, idx) => {
+      rowErrors = [...rowErrors, ...checkShifts(entry, idx, 2)];
     });
 
     if (rowErrors.length > 0) {
@@ -192,88 +241,200 @@ export default function TimesheetForm() {
     return Object.keys(errors).length === 0;
   };
 
-  // Download PDF Handler
+  const getPayload = () => ({
+    employeeName,
+    departmentName: 'Success Center',
+    beginningDate,
+    endingDate,
+    week1Entries,
+    week2Entries,
+    totalHoursWeek1,
+    totalHoursWeek2,
+    totalHoursPeriod,
+    employeeSignature,
+    employerSignature,
+    payrollSignature,
+    employeeSignDate,
+    employerSignDate,
+    payrollSignDate
+  });
+
   const handleDownloadPDF = async () => {
     if (!validateForm()) {
       showToast('Validation failed. Please correct form errors.', 'error');
       return;
     }
-
     try {
-      showToast('Generating official timesheet PDF...');
-      const payload = {
-        employeeName,
-        departmentName,
-        beginningDate,
-        endingDate,
-        entries,
-        totalHours: totalHoursSum,
-        signature
-      };
-      await generatePDF('timesheet', payload, pdfFileName);
+      showToast('Generating official Timesheet PDF...');
+      await generatePDF('timesheet', getPayload(), pdfFileName);
       showToast('Timesheet PDF downloaded successfully.');
     } catch (error) {
       showToast('PDF generation failed.', 'error');
     }
   };
 
-  // Email/Submit PDF Handler
   const handleEmailPDF = async () => {
     if (!validateForm()) {
       showToast('Validation failed. Please correct form errors.', 'error');
       return;
     }
-
     try {
       showToast('Preparing PDF package for supervisor submission...');
-      const payload = {
-        employeeName,
-        departmentName,
-        beginningDate,
-        endingDate,
-        entries,
-        totalHours: totalHoursSum,
-        signature
-      };
-      
-      // Trigger local pdf compile to verify
-      const finalName = await generatePDF('timesheet', payload, pdfFileName);
+      await generatePDF('timesheet', getPayload(), pdfFileName);
 
-      const bDateStr = beginningDate ? new Date(beginningDate).toLocaleDateString() : '';
-      const eDateStr = endingDate ? new Date(endingDate).toLocaleDateString() : '';
+      const bDateStr = beginningDate ? new Date(beginningDate + 'T00:00:00').toLocaleDateString() : '';
+      const eDateStr = endingDate ? new Date(endingDate + 'T00:00:00').toLocaleDateString() : '';
       setEmailSubject(`Livingstone Success Center - Timesheet Submission - ${employeeName}`);
       setEmailBody(
-        `Dear Mr. Davis,\n\nPlease find attached my Hourly Timesheet for the Success Center.\n\n` +
+        `Dear Mr. Davis,\n\nPlease find attached my Success Center Monthly Timesheet.\n\n` +
         `Reporting Period: ${bDateStr} to ${eDateStr}\n` +
-        `Total Hours Worked: ${totalHoursSum.toFixed(2)} hours\n\n` +
+        `Total worked hours this period: ${totalHoursPeriod.toFixed(2)} hours\n` +
+        `  - Week 1: ${totalHoursWeek1.toFixed(2)} hours\n` +
+        `  - Week 2: ${totalHoursWeek2.toFixed(2)} hours\n\n` +
         `Best regards,\n${employeeName}`
       );
-
       setIsEmailModalOpen(true);
     } catch (error) {
       showToast('Failed to compile timesheet.', 'error');
     }
   };
 
-  // Print Form Handler
   const handlePrintForm = () => {
     window.print();
   };
 
-  // Reset form
   const handleClearForm = () => {
-    if (window.confirm('Are you sure you want to clear this timesheet form?')) {
+    if (window.confirm('Are you sure you want to clear this entire timesheet form?')) {
       setEmployeeName('');
       setBeginningDate('');
       setEndingDate('');
-      setEntries([{ id: '1', date: '', timeIn1: '', timeOut1: '', timeIn2: '', timeOut2: '', totalHours: 0 }]);
+      setWeek1Entries(Array.from({ length: 7 }, (_, i) => defaultRow(`w1-${i}`)));
+      setWeek2Entries(Array.from({ length: 7 }, (_, i) => defaultRow(`w2-${i}`)));
+      setEmployeeSignature(null);
+      setEmployerSignature(null);
+      setPayrollSignature(null);
+      setEmployeeSignDate(new Date().toISOString().split('T')[0]);
+      setEmployerSignDate(new Date().toISOString().split('T')[0]);
+      setPayrollSignDate(new Date().toISOString().split('T')[0]);
       setPdfFileName('Employee_Timesheet_Month_Year.pdf');
       setIsFileNameEdited(false);
-      setSignature(null);
       clearTimesheetDraft();
-      showToast('Form cleared.');
+      showToast('Timesheet cleared.');
     }
   };
+
+  const renderTable = (entries, weekNum) => (
+    <div style={styles.tableCard} className="table-card-box">
+      <div style={styles.tableTitleRow}>
+        Week {weekNum} Logs
+      </div>
+      <div style={styles.tableScroll}>
+        <table style={styles.table}>
+          <thead>
+            <tr style={styles.tableHeaderRow}>
+              <th style={{ ...styles.th, width: '130px' }}>Date</th>
+              <th style={styles.th}>Shift 1 In</th>
+              <th style={styles.th}>Shift 1 Out</th>
+              <th style={styles.th}>Shift 2 In</th>
+              <th style={styles.th}>Shift 2 Out</th>
+              <th style={{ ...styles.th, width: '80px', textAlign: 'center' }}>Daily Hrs</th>
+              <th style={{ ...styles.th, width: '150px' }}>Student Name & ID</th>
+              <th style={{ ...styles.th, width: '150px' }}>Subject / Topic</th>
+              <th style={{ ...styles.th, width: '180px' }}>Progress Notes / Comments</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry, idx) => (
+              <tr key={entry.id} style={styles.tableBodyRow}>
+                <td style={styles.td}>
+                  <input
+                    type="date"
+                    value={entry.date}
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Date`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'date', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="time"
+                    value={entry.timeIn1}
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 1 In`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeIn1', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="time"
+                    value={entry.timeOut1}
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 1 Out`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeOut1', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="time"
+                    value={entry.timeIn2}
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 2 In`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeIn2', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="time"
+                    value={entry.timeOut2}
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Shift 2 Out`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'timeOut2', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={{ ...styles.td, textAlign: 'center', fontWeight: 'bold' }}>
+                  {entry.totalHours ? entry.totalHours.toFixed(2) : '0.00'}
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="text"
+                    value={entry.studentNameId}
+                    placeholder="e.g. John Doe (LC0012)"
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Student Details`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'studentNameId', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="text"
+                    value={entry.subject}
+                    placeholder="e.g. Essay Review"
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Subject`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'subject', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+                <td style={styles.td}>
+                  <input
+                    type="text"
+                    value={entry.notes}
+                    placeholder="Tutoring notes"
+                    aria-label={`Week ${weekNum} Day ${idx + 1} Notes`}
+                    onChange={(e) => handleEntryChange(weekNum, idx, 'notes', e.target.value)}
+                    style={styles.tableInput}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={styles.weeklySummaryRow}>
+        <span>Week {weekNum} Total Worked Hours:</span>
+        <span style={styles.weeklySummaryVal}>{weekNum === 1 ? totalHoursWeek1.toFixed(2) : totalHoursWeek2.toFixed(2)} hrs</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="form-page-layout" style={styles.container}>
@@ -289,18 +450,18 @@ export default function TimesheetForm() {
         </div>
       )}
 
-      {/* Official Form Header */}
+      {/* Official double underline Header */}
       <div className="printable-form-header" style={styles.officialHeader}>
         <h1 style={styles.collegeName}>Livingstone College</h1>
         <h2 style={styles.formTitle}>Success Center Monthly Timesheet</h2>
-        <p style={styles.subtext}>Department: Success Center • Salisbury, NC</p>
+        <p style={styles.subtext}>Department: Success Center • Salisbury, North Carolina 28144</p>
       </div>
 
       <div style={styles.formWrapper} className="form-wrapper-box">
-        {/* Error Banner */}
+        {/* Validation Errors banner */}
         {Object.keys(formErrors).length > 0 && (
           <div style={styles.errorBanner} id="timesheet-error-banner" className="no-print">
-            <p style={{ margin: '0 0 5px 0', fontWeight: '700' }}>Please review the following fields:</p>
+            <p style={{ margin: '0 0 5px 0', fontWeight: '700' }}>Please review the following issues:</p>
             <ul style={{ margin: 0, paddingLeft: '18px' }}>
               {formErrors.employeeName && <li>{formErrors.employeeName}</li>}
               {formErrors.beginningDate && <li>{formErrors.beginningDate}</li>}
@@ -310,7 +471,7 @@ export default function TimesheetForm() {
           </div>
         )}
 
-        {/* Metadata Inputs */}
+        {/* Metadata grid */}
         <div style={styles.headerGrid}>
           <div style={styles.formGroup}>
             <label style={styles.formLabel} htmlFor="employee-name">Employee Name</label>
@@ -321,7 +482,17 @@ export default function TimesheetForm() {
               placeholder="e.g. Aida Garba"
               onChange={(e) => {
                 setEmployeeName(e.target.value);
-                saveTimesheetDraft({ employeeName: e.target.value, beginningDate, endingDate, entries, pdfFileName });
+                saveTimesheetDraft({
+                  employeeName: e.target.value,
+                  beginningDate,
+                  endingDate,
+                  week1Entries,
+                  week2Entries,
+                  employeeSignDate,
+                  employerSignDate,
+                  payrollSignDate,
+                  pdfFileName
+                });
               }}
               style={styles.textInput}
             />
@@ -330,142 +501,178 @@ export default function TimesheetForm() {
             <label style={styles.formLabel}>Department Name</label>
             <input
               type="text"
-              value={departmentName}
+              value="Success Center"
               disabled
               style={styles.disabledInput}
             />
           </div>
           <div style={styles.formGroup}>
-            <label style={styles.formLabel} htmlFor="beginning-date">Beginning Date</label>
+            <label style={styles.formLabel} htmlFor="beginning-date">Reporting Start Date</label>
             <input
               id="beginning-date"
               type="date"
               value={beginningDate}
               onChange={(e) => {
                 setBeginningDate(e.target.value);
-                saveTimesheetDraft({ employeeName, beginningDate: e.target.value, endingDate, entries, pdfFileName });
+                saveTimesheetDraft({
+                  employeeName,
+                  beginningDate: e.target.value,
+                  endingDate,
+                  week1Entries,
+                  week2Entries,
+                  employeeSignDate,
+                  employerSignDate,
+                  payrollSignDate,
+                  pdfFileName
+                });
               }}
               style={styles.textInput}
             />
           </div>
           <div style={styles.formGroup}>
-            <label style={styles.formLabel} htmlFor="ending-date">Ending Date</label>
+            <label style={styles.formLabel} htmlFor="ending-date">Reporting End Date</label>
             <input
               id="ending-date"
               type="date"
               value={endingDate}
               onChange={(e) => {
                 setEndingDate(e.target.value);
-                saveTimesheetDraft({ employeeName, beginningDate, endingDate: e.target.value, entries, pdfFileName });
+                saveTimesheetDraft({
+                  employeeName,
+                  beginningDate,
+                  endingDate: e.target.value,
+                  week1Entries,
+                  week2Entries,
+                  employeeSignDate,
+                  employerSignDate,
+                  payrollSignDate,
+                  pdfFileName
+                });
               }}
               style={styles.textInput}
             />
           </div>
         </div>
 
-        {/* Timesheet Entries Table */}
-        <div style={styles.tableCard} className="table-card-box">
-          <div style={styles.tableScroll}>
-            <table style={styles.table} id="timesheet-table">
-              <thead>
-                <tr style={styles.tableHeaderRow}>
-                  <th style={{ ...styles.th, width: '160px' }}>Date</th>
-                  <th style={styles.th}>Shift 1 In</th>
-                  <th style={styles.th}>Shift 1 Out</th>
-                  <th style={styles.th}>Shift 2 In</th>
-                  <th style={styles.th}>Shift 2 Out</th>
-                  <th style={{ ...styles.th, width: '120px', textAlign: 'right' }}>Daily Hours</th>
-                  <th style={{ ...styles.th, width: '50px' }} className="no-print"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry, idx) => (
-                  <tr key={entry.id} style={styles.tableBodyRow}>
-                    <td style={styles.td}>
-                      <input
-                        type="date"
-                        value={entry.date}
-                        aria-label={`Date for shift ${idx + 1}`}
-                        onChange={(e) => handleEntryChange(entry.id, 'date', e.target.value)}
-                        style={styles.tableInput}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <input
-                        type="time"
-                        value={entry.timeIn1}
-                        aria-label={`Shift 1 In for shift ${idx + 1}`}
-                        onChange={(e) => handleEntryChange(entry.id, 'timeIn1', e.target.value)}
-                        style={styles.tableInput}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <input
-                        type="time"
-                        value={entry.timeOut1}
-                        aria-label={`Shift 1 Out for shift ${idx + 1}`}
-                        onChange={(e) => handleEntryChange(entry.id, 'timeOut1', e.target.value)}
-                        style={styles.tableInput}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <input
-                        type="time"
-                        value={entry.timeIn2}
-                        aria-label={`Shift 2 In for shift ${idx + 1}`}
-                        onChange={(e) => handleEntryChange(entry.id, 'timeIn2', e.target.value)}
-                        style={styles.tableInput}
-                      />
-                    </td>
-                    <td style={styles.td}>
-                      <input
-                        type="time"
-                        value={entry.timeOut2}
-                        aria-label={`Shift 2 Out for shift ${idx + 1}`}
-                        onChange={(e) => handleEntryChange(entry.id, 'timeOut2', e.target.value)}
-                        style={styles.tableInput}
-                      />
-                    </td>
-                    <td style={{ ...styles.td, textAlign: 'right', fontWeight: 'bold' }}>
-                      {entry.totalHours ? entry.totalHours.toFixed(2) : '0.00'}
-                    </td>
-                    <td style={{ ...styles.td, textAlign: 'center' }} className="no-print">
-                      <button 
-                        type="button" 
-                        onClick={() => removeRow(entry.id)} 
-                        style={styles.rowDeleteBtn}
-                        aria-label={`Delete row ${idx + 1}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* Logs tables */}
+        {renderTable(week1Entries, 1)}
+        {renderTable(week2Entries, 2)}
 
-          <div style={styles.tableFooter} className="no-print">
-            <button type="button" onClick={addRow} style={styles.addRowBtn}>
-              + Add Work Row
-            </button>
-          </div>
-        </div>
-
-        {/* Grand Total Bar */}
+        {/* Period Totals display */}
         <div style={styles.totalBar}>
-          <span style={styles.totalLabel}>Grand Total worked hours:</span>
-          <span style={styles.totalValue}>{totalHoursSum.toFixed(2)} hrs</span>
+          <span style={styles.totalLabel}>Total Hours Logged This Reporting Period:</span>
+          <span style={styles.totalValue}>{totalHoursPeriod.toFixed(2)} hrs</span>
         </div>
 
-        {/* Signature drawing pad */}
-        <div style={styles.signatureCard} className="no-print">
-          <label style={styles.signatureLabel}>Employee Signature (Draw below)</label>
-          <SignaturePad
-            key={signature ? 'has-sig' : 'no-sig'}
-            onSave={(sigData) => setSignature(sigData)}
-            onClear={() => setSignature(null)}
-          />
+        {/* Signature drawing pads grid */}
+        <div style={styles.signatureSection} className="no-print">
+          <h3 style={styles.signatureSectionTitle}>Signatures Required</h3>
+          <div style={styles.signatureGrid}>
+            {/* Employee Signature */}
+            <div style={styles.sigCard}>
+              <label style={styles.sigLabel}>1. Employee Signature</label>
+              <SignaturePad
+                key={employeeSignature ? 'employee-has' : 'employee-none'}
+                onSave={(sigData) => setEmployeeSignature(sigData)}
+                onClear={() => setEmployeeSignature(null)}
+                width={380}
+                height={100}
+              />
+              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
+                <label style={styles.sigDateLabel} htmlFor="employee-sign-date">Date Signed</label>
+                <input
+                  id="employee-sign-date"
+                  type="date"
+                  value={employeeSignDate}
+                  onChange={(e) => {
+                    setEmployeeSignDate(e.target.value);
+                    saveTimesheetDraft({
+                      employeeName,
+                      beginningDate,
+                      endingDate,
+                      week1Entries,
+                      week2Entries,
+                      employeeSignDate: e.target.value,
+                      employerSignDate,
+                      payrollSignDate,
+                      pdfFileName
+                    });
+                  }}
+                  style={styles.sigDateInput}
+                />
+              </div>
+            </div>
+
+            {/* Employer Signature */}
+            <div style={styles.sigCard}>
+              <label style={styles.sigLabel}>2. Employer / Supervisor Signature</label>
+              <SignaturePad
+                key={employerSignature ? 'employer-has' : 'employer-none'}
+                onSave={(sigData) => setEmployerSignature(sigData)}
+                onClear={() => setEmployerSignature(null)}
+                width={380}
+                height={100}
+              />
+              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
+                <label style={styles.sigDateLabel} htmlFor="employer-sign-date">Date Signed</label>
+                <input
+                  id="employer-sign-date"
+                  type="date"
+                  value={employerSignDate}
+                  onChange={(e) => {
+                    setEmployerSignDate(e.target.value);
+                    saveTimesheetDraft({
+                      employeeName,
+                      beginningDate,
+                      endingDate,
+                      week1Entries,
+                      week2Entries,
+                      employeeSignDate,
+                      employerSignDate: e.target.value,
+                      payrollSignDate,
+                      pdfFileName
+                    });
+                  }}
+                  style={styles.sigDateInput}
+                />
+              </div>
+            </div>
+
+            {/* Payroll Signature */}
+            <div style={styles.sigCard}>
+              <label style={styles.sigLabel}>3. Payroll Department Signature</label>
+              <SignaturePad
+                key={payrollSignature ? 'payroll-has' : 'payroll-none'}
+                onSave={(sigData) => setPayrollSignature(sigData)}
+                onClear={() => setPayrollSignature(null)}
+                width={380}
+                height={100}
+              />
+              <div style={{ ...styles.formGroup, marginTop: '8px' }}>
+                <label style={styles.sigDateLabel} htmlFor="payroll-sign-date">Date Signed</label>
+                <input
+                  id="payroll-sign-date"
+                  type="date"
+                  value={payrollSignDate}
+                  onChange={(e) => {
+                    setPayrollSignDate(e.target.value);
+                    saveTimesheetDraft({
+                      employeeName,
+                      beginningDate,
+                      endingDate,
+                      week1Entries,
+                      week2Entries,
+                      employeeSignDate,
+                      employerSignDate,
+                      payrollSignDate: e.target.value,
+                      pdfFileName
+                    });
+                  }}
+                  style={styles.sigDateInput}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Naming Configuration Box */}
@@ -480,7 +687,17 @@ export default function TimesheetForm() {
               onChange={(e) => {
                 setPdfFileName(e.target.value);
                 setIsFileNameEdited(true);
-                saveTimesheetDraft({ employeeName, beginningDate, endingDate, entries, pdfFileName: e.target.value });
+                saveTimesheetDraft({
+                  employeeName,
+                  beginningDate,
+                  endingDate,
+                  week1Entries,
+                  week2Entries,
+                  employeeSignDate,
+                  employerSignDate,
+                  payrollSignDate,
+                  pdfFileName: e.target.value
+                });
               }}
               style={styles.namingInput}
             />
@@ -518,15 +735,15 @@ export default function TimesheetForm() {
         </div>
       </div>
 
-      {/* Signature lines visible ONLY in browser printing (hidden on normal web layout via CSS print class, but rendered clean in window.print) */}
+      {/* Signature lines visible ONLY in browser printing */}
       <div className="print-only-signatures" style={styles.printSignatures}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
           <tbody>
             <tr>
-              <td style={{ width: '45%', verticalAlign: 'bottom', position: 'relative' }}>
-                {signature && (
+              <td style={{ width: '28%', verticalAlign: 'bottom', position: 'relative' }}>
+                {employeeSignature && (
                   <img 
-                    src={signature} 
+                    src={employeeSignature} 
                     alt="Employee Signature" 
                     style={{ 
                       position: 'absolute', 
@@ -539,22 +756,62 @@ export default function TimesheetForm() {
                 )}
                 <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
                 <div style={{ marginTop: '5px', fontWeight: 'bold' }}>EMPLOYEE SIGNATURE</div>
+                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {employeeSignDate || '—'}</div>
               </td>
-              <td style={{ width: '10%', verticalAlign: 'bottom' }}>
+              <td style={{ width: '36%', verticalAlign: 'bottom', paddingLeft: '15px', position: 'relative' }}>
+                {employerSignature && (
+                  <img 
+                    src={employerSignature} 
+                    alt="Employer Signature" 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: '22px', 
+                      left: '25px', 
+                      height: '35px', 
+                      pointerEvents: 'none' 
+                    }} 
+                  />
+                )}
                 <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>DATE</div>
+                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>EMPLOYER / SUPERVISOR SIGNATURE</div>
+                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {employerSignDate || '—'}</div>
               </td>
-              <td style={{ width: '35%', verticalAlign: 'bottom', paddingLeft: '20px' }}>
+              <td style={{ width: '36%', verticalAlign: 'bottom', paddingLeft: '15px', position: 'relative' }}>
+                {payrollSignature && (
+                  <img 
+                    src={payrollSignature} 
+                    alt="Payroll Signature" 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: '22px', 
+                      left: '25px', 
+                      height: '35px', 
+                      pointerEvents: 'none' 
+                    }} 
+                  />
+                )}
                 <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>SUPERVISOR: BENJAMIN DAVIS</div>
-              </td>
-              <td style={{ width: '10%', verticalAlign: 'bottom' }}>
-                <div style={{ borderBottom: '1px solid #000000', height: '35px', width: '90%' }}></div>
-                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>DATE</div>
+                <div style={{ marginTop: '5px', fontWeight: 'bold' }}>PAYROLL DEPT SIGNATURE</div>
+                <div style={{ marginTop: '2px', fontStyle: 'italic', fontSize: '9px' }}>Date: {payrollSignDate || '—'}</div>
               </td>
             </tr>
           </tbody>
         </table>
+        
+        {/* Administrative Note Footer */}
+        <div style={{
+          marginTop: '40px',
+          textAlign: 'center',
+          fontSize: '9px',
+          borderTop: '1px solid #000000',
+          paddingTop: '8px',
+          textTransform: 'uppercase',
+          color: '#333333',
+          letterSpacing: '0.5px',
+          fontFamily: 'sans-serif'
+        }}>
+          LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NORTH CAROLINA 28144 • SUPERVISOR: BENJAMIN DAVIS (bdavis1@livingstone.edu)
+        </div>
       </div>
 
       <EmailModal
@@ -571,7 +828,7 @@ export default function TimesheetForm() {
 
 const styles = {
   container: {
-    maxWidth: '900px',
+    maxWidth: '1280px', // Expanded for tabular space
     margin: '0 auto',
     padding: '24px 16px'
   },
@@ -598,9 +855,7 @@ const styles = {
     letterSpacing: '2px',
     color: '#333333',
     marginTop: '4px',
-    marginRight: 0,
-    marginBottom: 0,
-    marginLeft: 0
+    margin: 0
   },
   subtext: {
     fontSize: '12px',
@@ -625,7 +880,7 @@ const styles = {
   },
   headerGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
     gap: '16px',
     marginBottom: '24px'
   },
@@ -665,7 +920,16 @@ const styles = {
     border: '1px solid #cbd5e1',
     borderRadius: '8px',
     overflow: 'hidden',
-    marginBottom: '20px'
+    marginBottom: '24px'
+  },
+  tableTitleRow: {
+    backgroundColor: '#000000',
+    color: '#ffffff',
+    padding: '8px 16px',
+    fontWeight: '700',
+    fontSize: '12px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   },
   tableScroll: {
     overflowX: 'auto'
@@ -673,7 +937,8 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    textAlign: 'left'
+    textAlign: 'left',
+    minWidth: '950px' // Ensures horizontal scroll works on small viewports
   },
   tableHeaderRow: {
     backgroundColor: '#f8fafc',
@@ -697,42 +962,25 @@ const styles = {
     padding: '8px 10px',
     border: '1px solid #cbd5e1',
     borderRadius: '6px',
-    fontSize: '13px',
+    fontSize: '12px',
     fontFamily: "'Inter', sans-serif",
     outline: 'none',
     backgroundColor: '#ffffff',
     color: '#000000'
   },
-  rowDeleteBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    cursor: 'pointer',
-    padding: '6px',
-    borderRadius: '4px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'color 0.2s',
-    ':hover': {
-      color: '#ef4444'
-    }
-  },
-  tableFooter: {
-    padding: '10px 12px',
+  weeklySummaryRow: {
+    padding: '12px 16px',
     backgroundColor: '#f8fafc',
-    borderTop: '1px solid #e2e8f0'
+    borderTop: '1px solid #e2e8f0',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    fontWeight: '700',
+    fontSize: '13px'
   },
-  addRowBtn: {
-    padding: '7px 14px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #cbd5e1',
-    borderRadius: '6px',
-    fontSize: '12px',
-    fontWeight: '600',
+  weeklySummaryVal: {
     color: '#000000',
-    cursor: 'pointer',
-    boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
+    fontSize: '14px'
   },
   totalBar: {
     backgroundColor: '#000000',
@@ -756,6 +1004,60 @@ const styles = {
     fontWeight: '800',
     color: '#A7CBE5'
   },
+  signatureSection: {
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '24px',
+    backgroundColor: '#fafafa'
+  },
+  signatureSectionTitle: {
+    fontSize: '12px',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    color: '#334155',
+    marginBottom: '12px'
+  },
+  signatureGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: '20px'
+  },
+  sigCard: {
+    backgroundColor: '#ffffff',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    padding: '14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px'
+  },
+  sigLabel: {
+    fontSize: '11px',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    color: '#000000',
+    letterSpacing: '0.5px'
+  },
+  sigDateLabel: {
+    fontSize: '10px',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    color: '#64748b'
+  },
+  sigDateInput: {
+    padding: '8px 10px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontFamily: "'Inter', sans-serif",
+    backgroundColor: '#ffffff',
+    color: '#000000',
+    outline: 'none',
+    width: '100%',
+    maxWidth: '180px'
+  },
   namingCard: {
     backgroundColor: '#f8fafc',
     border: '1px solid #e2e8f0',
@@ -765,23 +1067,6 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '6px'
-  },
-  signatureCard: {
-    backgroundColor: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    padding: '16px',
-    marginBottom: '24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  signatureLabel: {
-    fontSize: '11px',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    color: '#475569',
-    letterSpacing: '0.5px'
   },
   namingLabel: {
     fontSize: '11px',
@@ -894,7 +1179,7 @@ const styles = {
     animation: 'slideIn 0.3s ease-out'
   },
   printSignatures: {
-    display: 'none', // Hidden in web view, custom CSS shows it on print
+    display: 'none',
     marginTop: '40px'
   }
 };
