@@ -74,9 +74,13 @@ export default function TimesheetForm() {
   const [employeeName, setEmployeeName]     = useState('');
   const [weeks, setWeeks]                   = useState([mkWeek(1)]);
 
-  // Signature: session-only, not persisted
+  // Signatures: session-only, not persisted
   const [employeeSignature, setEmployeeSignature] = useState(null);
-  const [employeeSignDate, setEmployeeSignDate]   = useState(
+  const [supervisorSignature, setSupervisorSignature] = useState(null);
+  const [payrollSignature, setPayrollSignature] = useState(null);
+  
+  // Shared Approval Date
+  const [approvalDate, setApprovalDate] = useState(
     new Date().toISOString().split('T')[0]
   );
 
@@ -97,7 +101,7 @@ export default function TimesheetForm() {
     if (!draft) return;
     if (draft.employeeName)     setEmployeeName(draft.employeeName);
     if (draft.weeks?.length > 0) setWeeks(draft.weeks);
-    if (draft.employeeSignDate) setEmployeeSignDate(draft.employeeSignDate);
+    if (draft.approvalDate)     setApprovalDate(draft.approvalDate);
     if (draft.pdfFileName)      { setPdfFileName(draft.pdfFileName); setFileNameEdited(true); }
     showToast('Restored your saved draft.');
   }, []);
@@ -113,7 +117,7 @@ export default function TimesheetForm() {
   // ── Persist draft ───────────────────────────────────────────────────────────
   const persist = (patch = {}) => {
     saveTimesheetDraft({
-      employeeName, weeks, employeeSignDate, pdfFileName, ...patch
+      employeeName, weeks, approvalDate, pdfFileName, ...patch
     });
   };
 
@@ -289,7 +293,9 @@ export default function TimesheetForm() {
     weekTotals,
     periodTotal,
     employeeSignature,
-    employeeSignDate
+    supervisorSignature,
+    payrollSignature,
+    approvalDate
   });
 
   // ── PDF actions ─────────────────────────────────────────────────────────────
@@ -323,7 +329,9 @@ export default function TimesheetForm() {
     setEmployeeName('');
     setWeeks([mkWeek(1)]);
     setEmployeeSignature(null);
-    setEmployeeSignDate(new Date().toISOString().split('T')[0]);
+    setSupervisorSignature(null);
+    setPayrollSignature(null);
+    setApprovalDate(new Date().toISOString().split('T')[0]);
     setPdfFileName('Employee_Timesheet_Month_Year.pdf');
     setFileNameEdited(false);
     clearTimesheetDraft();
@@ -567,33 +575,64 @@ export default function TimesheetForm() {
           <span style={S.totalValue}>{periodTotal.toFixed(2)} hrs</span>
         </div>
 
-        {/* Employee Signature */}
-        <div style={S.sigSection} className="no-print">
-          <div style={S.sigSectionHeader}>
-            <span style={S.sigSectionTitle}>Employee Signature</span>
-            <span style={S.sigSectionHint}>Draw with mouse or finger</span>
+        {/* Dedicated Approval Section */}
+        <div style={S.approvalSection} className="no-print">
+          <div style={S.approvalHeader}>
+            <span style={S.approvalTitle}>TUTORING LOG & TIMESHEET APPROVAL</span>
+            <span style={S.approvalSub}>Please complete signatures below to process payroll</span>
           </div>
-          <div style={S.sigCard}>
-            <SignaturePad
-              key={employeeSignature ? 'has-sig' : 'no-sig'}
-              onSave={d => setEmployeeSignature(d)}
-              onClear={() => setEmployeeSignature(null)}
-              width={420}
-              height={110}
-            />
-            <div style={{ marginTop: 10 }}>
-              <label style={S.sigDateLabel} htmlFor="emp-sign-date">Date Signed</label>
-              <input
-                id="emp-sign-date"
-                type="date"
-                value={employeeSignDate}
-                onChange={e => {
-                  setEmployeeSignDate(e.target.value);
-                  persist({ employeeSignDate: e.target.value });
-                }}
-                style={S.sigDateInput}
+
+          <div style={S.approvalRow}>
+            {/* Employee Signature */}
+            <div style={S.sigCol}>
+              <label style={S.formLabel}>Employee Signature</label>
+              <SignaturePad
+                key={employeeSignature ? 'has-emp-sig' : 'no-emp-sig'}
+                onSave={d => setEmployeeSignature(d)}
+                onClear={() => setEmployeeSignature(null)}
+                width={360}
+                height={100}
               />
             </div>
+
+            {/* Supervisor Signature */}
+            <div style={S.sigCol}>
+              <label style={S.formLabel}>Supervisor Signature</label>
+              <SignaturePad
+                key={supervisorSignature ? 'has-sup-sig' : 'no-sup-sig'}
+                onSave={d => setSupervisorSignature(d)}
+                onClear={() => setSupervisorSignature(null)}
+                width={360}
+                height={100}
+              />
+            </div>
+
+            {/* Payroll Signature */}
+            <div style={S.sigCol}>
+              <label style={S.formLabel}>Payroll Department Signature</label>
+              <SignaturePad
+                key={payrollSignature ? 'has-pay-sig' : 'no-pay-sig'}
+                onSave={d => setPayrollSignature(d)}
+                onClear={() => setPayrollSignature(null)}
+                width={360}
+                height={100}
+              />
+            </div>
+          </div>
+
+          {/* Shared Date Field */}
+          <div style={{ marginTop: 20, paddingTop: 15, borderTop: '1px solid #dde1e7' }}>
+            <label style={S.sigDateLabel} htmlFor="approval-date">Approval Date</label>
+            <input
+              id="approval-date"
+              type="date"
+              value={approvalDate}
+              onChange={e => {
+                setApprovalDate(e.target.value);
+                persist({ approvalDate: e.target.value });
+              }}
+              style={S.sigDateInput}
+            />
           </div>
         </div>
 
@@ -640,14 +679,36 @@ export default function TimesheetForm() {
 
       {/* Print-only signature line */}
       <div className="print-only-signatures" style={S.printSig}>
-        <div style={{ position: 'relative', display: 'inline-block', width: '38%' }}>
-          {employeeSignature && (
-            <img src={employeeSignature} alt="Signature"
-              style={{ position: 'absolute', bottom: 20, left: 8, height: 36, pointerEvents: 'none' }} />
-          )}
-          <div style={{ borderBottom: '1px solid #000', height: 36, width: '90%' }} />
-          <div style={{ marginTop: 5, fontWeight: 'bold', fontSize: 11 }}>EMPLOYEE SIGNATURE</div>
-          <div style={{ marginTop: 2, fontStyle: 'italic', fontSize: 9 }}>Date: {employeeSignDate || '—'}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', marginBottom: '15px' }}>
+          <div style={{ position: 'relative', display: 'inline-block', width: '30%' }}>
+            {employeeSignature && (
+              <img src={employeeSignature} alt="Signature"
+                style={{ position: 'absolute', bottom: 20, left: 8, height: 36, pointerEvents: 'none' }} />
+            )}
+            <div style={{ borderBottom: '1px solid #000', height: 36, width: '100%' }} />
+            <div style={{ marginTop: 5, fontWeight: 'bold', fontSize: 11 }}>EMPLOYEE SIGNATURE</div>
+          </div>
+
+          <div style={{ position: 'relative', display: 'inline-block', width: '30%' }}>
+            {supervisorSignature && (
+              <img src={supervisorSignature} alt="Signature"
+                style={{ position: 'absolute', bottom: 20, left: 8, height: 36, pointerEvents: 'none' }} />
+            )}
+            <div style={{ borderBottom: '1px solid #000', height: 36, width: '100%' }} />
+            <div style={{ marginTop: 5, fontWeight: 'bold', fontSize: 11 }}>SUPERVISOR SIGNATURE</div>
+          </div>
+
+          <div style={{ position: 'relative', display: 'inline-block', width: '30%' }}>
+            {payrollSignature && (
+              <img src={payrollSignature} alt="Signature"
+                style={{ position: 'absolute', bottom: 20, left: 8, height: 36, pointerEvents: 'none' }} />
+            )}
+            <div style={{ borderBottom: '1px solid #000', height: 36, width: '100%' }} />
+            <div style={{ marginTop: 5, fontWeight: 'bold', fontSize: 11 }}>PAYROLL SIGNATURE</div>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 'bold', marginBottom: '10px' }}>
+          DATE SIGNED: {approvalDate || '—'}
         </div>
         <div style={S.printFooterNote}>
           LIVINGSTONE COLLEGE SUCCESS CENTER • SALISBURY, NC 28144 • SUPERVISOR: BENJAMIN DAVIS (bdavis1@livingstone.edu)
@@ -951,25 +1012,26 @@ const S = {
     letterSpacing: '-0.02em'
   },
 
-  // ── Signature section ─────────────────────────────────────────────────────
-  sigSection: {
+  // ── Approval section ──────────────────────────────────────────────────────
+  approvalSection: {
     border: '1px solid #dde1e7',
-    borderRadius: 6, padding: '18px 20px',
+    borderRadius: 6, padding: '20px',
     marginBottom: 22, backgroundColor: '#f9fafb'
   },
-  sigSectionHeader: {
-    display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14
+  approvalHeader: {
+    display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 18
   },
-  sigSectionTitle: {
-    fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.06em', color: '#111827',
+  approvalTitle: {
+    fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.06em', color: '#0f0f0f',
     fontFamily: "'Inter', sans-serif"
   },
-  sigSectionHint: { fontSize: 11, color: '#6b7280', fontFamily: "'Inter', sans-serif" },
-  sigCard: {
-    backgroundColor: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 6, padding: 16
+  approvalSub: { fontSize: 11, color: '#64748b', fontFamily: "'Inter', sans-serif" },
+  approvalRow: {
+    display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'space-between'
+  },
+  sigCol: {
+    flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 8
   },
   sigDateLabel: {
     display: 'block', fontSize: 13, fontWeight: 700,

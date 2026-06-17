@@ -130,20 +130,43 @@ const buildWeekBlock = (week, weekTotal) => {
 // ─── Signature block ──────────────────────────────────────────────────────────
 
 const buildSignatureBlock = (data) => `
-  <div style="border:1px solid #000; padding:15px; font-size:11px; margin-top:15px;">
-    <div style="width:40%; position:relative;">
-      <div style="height:36px; position:relative;">
-        ${data.employeeSignature
-          ? `<img src="${data.employeeSignature}"
-               style="position:absolute; bottom:2px; left:6px;
-                      max-height:38px; max-width:200px;"/>`
-          : ''}
-        <div style="border-bottom:1px solid #000; width:100%; height:100%;"></div>
-      </div>
-      <div style="margin-top:5px; font-weight:bold; text-transform:uppercase;">Employee Signature</div>
-      <div style="margin-top:2px; font-style:italic; font-size:9px; color:#555;">
-        Date: ${data.employeeSignDate || '—'}
-      </div>
+  <div style="border:1px solid #000; padding:15px; font-size:11px; margin-top:15px; page-break-inside:avoid;">
+    <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+      <tr>
+        <td style="width:30%; padding-right:15px; vertical-align:bottom;">
+          <div style="height:36px; position:relative; border-bottom:1px solid #000;">
+            ${data.employeeSignature
+              ? `<img src="${data.employeeSignature}"
+                   style="position:absolute; bottom:2px; left:6px;
+                          max-height:36px; max-width:180px;"/>`
+              : ''}
+          </div>
+          <div style="margin-top:5px; font-weight:bold; text-transform:uppercase;">Employee Signature</div>
+        </td>
+        <td style="width:30%; padding-right:15px; vertical-align:bottom;">
+          <div style="height:36px; position:relative; border-bottom:1px solid #000;">
+            ${data.supervisorSignature
+              ? `<img src="${data.supervisorSignature}"
+                   style="position:absolute; bottom:2px; left:6px;
+                          max-height:36px; max-width:180px;"/>`
+              : ''}
+          </div>
+          <div style="margin-top:5px; font-weight:bold; text-transform:uppercase;">Supervisor Signature</div>
+        </td>
+        <td style="width:30%; vertical-align:bottom;">
+          <div style="height:36px; position:relative; border-bottom:1px solid #000;">
+            ${data.payrollSignature
+              ? `<img src="${data.payrollSignature}"
+                   style="position:absolute; bottom:2px; left:6px;
+                          max-height:36px; max-width:180px;"/>`
+              : ''}
+          </div>
+          <div style="margin-top:5px; font-weight:bold; text-transform:uppercase;">Payroll Signature</div>
+        </td>
+      </tr>
+    </table>
+    <div style="font-weight:bold; text-transform:uppercase; font-size:10.5px;">
+      Approval Date: ${data.approvalDate || '—'}
     </div>
   </div>
 `;
