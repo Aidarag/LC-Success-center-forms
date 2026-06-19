@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Download, Printer, Send, Plus, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Printer, Send, Plus, X, Save, Trash2 } from 'lucide-react';
 import { saveTimesheetDraft, getTimesheetDraft, clearTimesheetDraft } from '../utils/storage';
 import { generatePDF } from '../utils/pdfGenerator';
 import EmailModal from './EmailModal';
@@ -13,26 +13,54 @@ const timeToDecimal = (t) => {
   return h + m / 60;
 };
 
-const calcDiff = (inT, outT) => {
-  if (!inT || !outT) return 0;
-  const diff = timeToDecimal(outT) - timeToDecimal(inT);
-  return diff > 0 ? diff : 0;
+
+const isRowEmpty = (entry) => {
+  return !(
+    entry.date ||
+    entry.timeIn1 ||
+    entry.timeOut1 ||
+    entry.timeIn2 ||
+    entry.timeOut2 ||
+    entry.studentNameId ||
+    entry.subject ||
+    entry.notes
+  );
 };
 
-const addDays = (dateStr, n) => {
-  if (!dateStr) return '';
+const getDayOfWeek = (dateStr) => {
+  if (!dateStr) return -1;
   const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return -1;
+  return d.getDay();
+};
+
+const getOrAdjustValidDate = (dateStr) => {
+  if (!dateStr) return '';
+  let d = new Date(dateStr + 'T00:00:00');
   if (isNaN(d.getTime())) return '';
-  d.setDate(d.getDate() + n);
+  let day = d.getDay();
+  if (day === 6) {
+    d.setDate(d.getDate() + 2);
+  } else if (day === 0) {
+    d.setDate(d.getDate() + 1);
+  }
   return d.toISOString().split('T')[0];
 };
 
-const displayDate = (dateStr) => {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr + 'T00:00:00');
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+const getNextValidDate = (dateStr) => {
+  if (!dateStr) return '';
+  let d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + 1);
+  let day = d.getDay();
+  if (day === 6) {
+    d.setDate(d.getDate() + 2);
+  } else if (day === 0) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d.toISOString().split('T')[0];
 };
+
 
 const monthYearStr = (dateStr) => {
   if (!dateStr) return 'Month_Year';
@@ -41,13 +69,6 @@ const monthYearStr = (dateStr) => {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(' ', '_');
 };
 
-const isSummerDate = (dateStr) => {
-  if (!dateStr) return false;
-  const d = new Date(dateStr + 'T00:00:00');
-  if (isNaN(d.getTime())) return false;
-  const m = d.getMonth(); // 0-indexed: 4 is May, 5 is June, 6 is July, 7 is August
-  return m >= 4 && m <= 7;
-};
 
 // ─── ID factories ─────────────────────────────────────────────────────────────
 let _rid = 0;
@@ -73,6 +94,7 @@ const mkWeek = (num) => ({
 export default function TimesheetForm() {
   const [employeeName, setEmployeeName]     = useState('');
   const [weeks, setWeeks]                   = useState([mkWeek(1)]);
+  const [term, setTerm]                     = useState('Summer');
 
   // Signatures: session-only, not persisted
   const [employeeSignature, setEmployeeSignature] = useState(null);
@@ -95,6 +117,12 @@ export default function TimesheetForm() {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody]       = useState('');
 
+  // ── Toast ───────────────────────────────────────────────────────────────────
+  const showToast = (text, type = 'success') => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   // ── Load draft on mount ─────────────────────────────────────────────────────
   useEffect(() => {
     const draft = getTimesheetDraft();
@@ -103,7 +131,8 @@ export default function TimesheetForm() {
     if (draft.weeks?.length > 0) setWeeks(draft.weeks);
     if (draft.approvalDate)     setApprovalDate(draft.approvalDate);
     if (draft.pdfFileName)      { setPdfFileName(draft.pdfFileName); setFileNameEdited(true); }
-    showToast('Restored your saved draft.');
+    if (draft.term)             setTerm(draft.term);
+    showToast('A saved draft was found and restored.');
   }, []);
 
   // ── Auto-generate PDF filename ──────────────────────────────────────────────
@@ -114,21 +143,42 @@ export default function TimesheetForm() {
     setPdfFileName(`${name}_Timesheet_${my}.pdf`);
   }, [employeeName, weeks, fileNameEdited]);
 
-  // ── Persist draft ───────────────────────────────────────────────────────────
-  const persist = (patch = {}) => {
-    saveTimesheetDraft({
-      employeeName, weeks, approvalDate, pdfFileName, ...patch
+  // ── Persist draft (Manual save is used now) ─────────────────────────────────
+  const persist = () => {};
+
+  const handleSaveDraft = () => {
+    const success = saveTimesheetDraft({
+      employeeName,
+      weeks,
+      approvalDate,
+      pdfFileName,
+      term
     });
+    if (success) {
+      showToast('Draft saved successfully.');
+    } else {
+      showToast('Failed to save draft.', 'error');
+    }
   };
 
-  // ── Toast ───────────────────────────────────────────────────────────────────
-  const showToast = (text, type = 'success') => {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 4000);
+  const handleClearDraft = () => {
+    if (!window.confirm('Clear the saved draft and start over?')) return;
+    clearTimesheetDraft();
+    setEmployeeName('');
+    setWeeks([mkWeek(1)]);
+    setTerm('Summer');
+    setEmployeeSignature(null);
+    setSupervisorSignature(null);
+    setPayrollSignature(null);
+    setApprovalDate(new Date().toISOString().split('T')[0]);
+    setPdfFileName('Employee_Timesheet_Month_Year.pdf');
+    setFileNameEdited(false);
+    showToast('Draft cleared.');
   };
+
 
   // ── Totals ──────────────────────────────────────────────────────────────────
-  const weekTotals      = weeks.map(w => w.entries.reduce((s, e) => s + (e.totalHours || 0), 0));
+  const weekTotals      = weeks.map(w => w.entries.filter(e => !isRowEmpty(e)).reduce((s, e) => s + (e.totalHours || 0), 0));
   const periodTotal     = weekTotals.reduce((s, t) => s + t, 0);
 
   // ── Week actions ────────────────────────────────────────────────────────────
@@ -150,9 +200,15 @@ export default function TimesheetForm() {
   const handleAddRow = (weekId) => {
     const updated = weeks.map(w => {
       if (w.id !== weekId || w.entries.length >= 7) return w;
-      const nextIdx = w.entries.length;
-      const defaultDate = w.startDate ? addDays(w.startDate, nextIdx) : '';
-      return { ...w, entries: [...w.entries, { ...mkRow(), date: defaultDate }] };
+      const entries = w.entries;
+      const lastEntry = entries[entries.length - 1];
+      let nextDate = '';
+      if (lastEntry && lastEntry.date) {
+        nextDate = getNextValidDate(lastEntry.date, term);
+      } else if (w.startDate) {
+        nextDate = getOrAdjustValidDate(w.startDate, term);
+      }
+      return { ...w, entries: [...w.entries, { ...mkRow(), date: nextDate }] };
     });
     setWeeks(updated);
     persist({ weeks: updated });
@@ -171,13 +227,19 @@ export default function TimesheetForm() {
   const handleWeekStartDate = (weekId, value) => {
     const updated = weeks.map(w => {
       if (w.id !== weekId) return w;
+      let currentDate = getOrAdjustValidDate(value, term);
+      const newEntries = w.entries.map((e, idx) => {
+        if (idx === 0) {
+          return { ...e, date: currentDate };
+        } else {
+          currentDate = getNextValidDate(currentDate, term);
+          return { ...e, date: currentDate };
+        }
+      });
       return {
         ...w,
         startDate: value,
-        entries: w.entries.map((e, idx) => ({
-          ...e,
-          date: value ? addDays(value, idx) : e.date
-        }))
+        entries: newEntries
       };
     });
     setWeeks(updated);
@@ -185,6 +247,7 @@ export default function TimesheetForm() {
   };
 
   const handleEntryChange = (weekId, rowId, field, value) => {
+    let alertShown = false;
     const updated = weeks.map(w => {
       if (w.id !== weekId) return w;
       return {
@@ -192,9 +255,79 @@ export default function TimesheetForm() {
         entries: w.entries.map(e => {
           if (e.id !== rowId) return e;
           const next = { ...e, [field]: value };
+
+          // Real-time date validation
+          if (field === 'date' && value) {
+            const day = getDayOfWeek(value);
+            if (day === 0 || day === 6) {
+              if (term === 'Summer') {
+                alert('Summer entries must be Monday through Friday.');
+              } else {
+                alert('Please select a valid workday.');
+              }
+            }
+          }
+
           if (['timeIn1','timeOut1','timeIn2','timeOut2'].includes(field)) {
-            next.totalHours = calcDiff(next.timeIn1, next.timeOut1)
-                            + calcDiff(next.timeIn2, next.timeOut2);
+            const startHour = term === 'Summer' ? '09:00' : '08:00';
+            const endHour = term === 'Summer' ? '17:00' : '20:00';
+            const hourAlert = term === 'Summer'
+              ? 'Summer hours must be between 9:00 AM and 5:00 PM.'
+              : 'Fall/Spring hours must be between 8:00 AM and 8:00 PM.';
+
+            // Check validation for shift 1
+            if (next.timeIn1 && next.timeOut1) {
+              const in1 = timeToDecimal(next.timeIn1);
+              const out1 = timeToDecimal(next.timeOut1);
+              if (out1 < in1) {
+                if (!alertShown) {
+                  alert('End time must be after start time.');
+                  alertShown = true;
+                }
+              } else if (next.timeIn1 < startHour || next.timeOut1 > endHour) {
+                if (!alertShown) {
+                  alert(hourAlert);
+                  alertShown = true;
+                }
+              }
+            }
+            // Check validation for shift 2
+            if (next.timeIn2 && next.timeOut2) {
+              const in2 = timeToDecimal(next.timeIn2);
+              const out2 = timeToDecimal(next.timeOut2);
+              if (out2 < in2) {
+                if (!alertShown) {
+                  alert('End time must be after start time.');
+                  alertShown = true;
+                }
+              } else if (next.timeIn2 < startHour || next.timeOut2 > endHour) {
+                if (!alertShown) {
+                  alert(hourAlert);
+                  alertShown = true;
+                }
+              }
+            }
+
+            // Calculation
+            let h1 = 0;
+            if (next.timeIn1 && next.timeOut1) {
+              const in1 = timeToDecimal(next.timeIn1);
+              const out1 = timeToDecimal(next.timeOut1);
+              if (out1 >= in1 && next.timeIn1 >= startHour && next.timeOut1 <= endHour) {
+                h1 = out1 - in1;
+              }
+            }
+
+            let h2 = 0;
+            if (next.timeIn2 && next.timeOut2) {
+              const in2 = timeToDecimal(next.timeIn2);
+              const out2 = timeToDecimal(next.timeOut2);
+              if (out2 >= in2 && next.timeIn2 >= startHour && next.timeOut2 <= endHour) {
+                h2 = out2 - in2;
+              }
+            }
+
+            next.totalHours = h1 + h2;
           }
           return next;
         })
@@ -204,7 +337,6 @@ export default function TimesheetForm() {
     persist({ weeks: updated });
   };
 
-  // ── Validation ──────────────────────────────────────────────────────────────
   const validate = () => {
     const errors = {};
     if (!employeeName.trim()) errors.employeeName = 'Employee Name is required.';
@@ -221,7 +353,21 @@ export default function TimesheetForm() {
         if (hasData) {
           if (!e.date) {
             rowErrs.push(`${lbl}: Please select a date.`);
+          } else {
+            const day = getDayOfWeek(e.date);
+            if (day === 0 || day === 6) {
+              const dayAlert = term === 'Summer'
+                ? 'Summer entries must be Monday through Friday.'
+                : 'Please select a valid workday.';
+              rowErrs.push(`${lbl}: ${dayAlert}`);
+            }
           }
+
+          const startHour = term === 'Summer' ? '09:00' : '08:00';
+          const endHour = term === 'Summer' ? '17:00' : '20:00';
+          const hourAlert = term === 'Summer'
+            ? 'Summer hours must be between 9:00 AM and 5:00 PM.'
+            : 'Fall/Spring hours must be between 8:00 AM and 8:00 PM.';
 
           // Shift 1
           if (e.timeIn1 || e.timeOut1) {
@@ -234,18 +380,8 @@ export default function TimesheetForm() {
               const out1 = timeToDecimal(e.timeOut1);
               if (out1 <= in1) {
                 rowErrs.push(`${lbl}: End time must be after start time.`);
-              }
-              if (e.date) {
-                const isSummer = isSummerDate(e.date);
-                if (isSummer) {
-                  if (e.timeIn1 < '09:00' || e.timeOut1 > '17:00') {
-                    rowErrs.push(`${lbl}: Summer hours must be between 9:00 AM and 5:00 PM.`);
-                  }
-                } else {
-                  if (e.timeIn1 < '08:00' || e.timeOut1 > '20:00') {
-                    rowErrs.push(`${lbl}: Fall/Spring hours must be between 8:00 AM and 8:00 PM.`);
-                  }
-                }
+              } else if (e.timeIn1 < startHour || e.timeOut1 > endHour) {
+                rowErrs.push(`${lbl}: ${hourAlert}`);
               }
             }
           }
@@ -261,18 +397,8 @@ export default function TimesheetForm() {
               const out2 = timeToDecimal(e.timeOut2);
               if (out2 <= in2) {
                 rowErrs.push(`${lbl}: End time must be after start time.`);
-              }
-              if (e.date) {
-                const isSummer = isSummerDate(e.date);
-                if (isSummer) {
-                  if (e.timeIn2 < '09:00' || e.timeOut2 > '17:00') {
-                    rowErrs.push(`${lbl}: Summer hours must be between 9:00 AM and 5:00 PM.`);
-                  }
-                } else {
-                  if (e.timeIn2 < '08:00' || e.timeOut2 > '20:00') {
-                    rowErrs.push(`${lbl}: Fall/Spring hours must be between 8:00 AM and 8:00 PM.`);
-                  }
-                }
+              } else if (e.timeIn2 < startHour || e.timeOut2 > endHour) {
+                rowErrs.push(`${lbl}: ${hourAlert}`);
               }
             }
           }
@@ -289,6 +415,7 @@ export default function TimesheetForm() {
   const getPayload = () => ({
     employeeName,
     departmentName: 'Success Center',
+    term,
     weeks,
     weekTotals,
     periodTotal,
@@ -324,19 +451,6 @@ export default function TimesheetForm() {
     } catch { showToast('Failed to compile timesheet.', 'error'); }
   };
 
-  const handleClear = () => {
-    if (!window.confirm('Clear the entire timesheet form?')) return;
-    setEmployeeName('');
-    setWeeks([mkWeek(1)]);
-    setEmployeeSignature(null);
-    setSupervisorSignature(null);
-    setPayrollSignature(null);
-    setApprovalDate(new Date().toISOString().split('T')[0]);
-    setPdfFileName('Employee_Timesheet_Month_Year.pdf');
-    setFileNameEdited(false);
-    clearTimesheetDraft();
-    showToast('Timesheet cleared.');
-  };
 
   // ── Render a single week block ───────────────────────────────────────────────
   const renderWeek = (week, idx) => {
@@ -385,7 +499,7 @@ export default function TimesheetForm() {
                 <th style={{ ...S.th, width: 96 }}>Shift 1 Out</th>
                 <th style={{ ...S.th, width: 96 }}>Shift 2 In</th>
                 <th style={{ ...S.th, width: 96 }}>Shift 2 Out</th>
-                <th style={{ ...S.th, width: 72, textAlign: 'center' }}>Daily Hrs</th>
+                <th style={{ ...S.th, width: 96, textAlign: 'center' }}>Hours Worked</th>
                 <th style={{ ...S.th, width: 160 }}>Student Name & ID</th>
                 <th style={{ ...S.th, width: 210 }}>Subject / Topic</th>
                 <th style={{ ...S.th, width: 270 }}>Progress Notes</th>
@@ -430,8 +544,22 @@ export default function TimesheetForm() {
                         style={S.timeInput}
                         aria-label={`Wk${week.weekNum} R${rowIdx+1} S2Out`} />
                     </td>
-                    <td style={{ ...S.td, textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
-                      {(entry.totalHours || 0).toFixed(2)}
+                    <td style={S.td}>
+                      <input
+                        type="text"
+                        value={(entry.totalHours || 0).toFixed(2)}
+                        readOnly
+                        style={{
+                          ...S.timeInput,
+                          textAlign: 'center',
+                          fontWeight: 700,
+                          backgroundColor: '#f3f4f6',
+                          color: '#374151',
+                          border: '1px solid #e5e7eb',
+                          cursor: 'not-allowed'
+                        }}
+                        aria-label={`Wk${week.weekNum} R${rowIdx+1} Hours Worked`}
+                      />
                     </td>
                     <td style={S.td}>
                       <input type="text" value={entry.studentNameId}
@@ -492,7 +620,7 @@ export default function TimesheetForm() {
             {atMax ? 'Max 7 Work Entries Reached' : '+ Add Work Entry'}
           </button>
           <div style={S.weekTotal}>
-            <span style={S.weekTotalLabel}>Week {week.weekNum} Total:</span>
+            <span style={S.weekTotalLabel}>Total Hours This Week:</span>
             <span style={S.weekTotalVal}>{wTotal.toFixed(2)} hrs</span>
           </div>
         </div>
@@ -551,6 +679,22 @@ export default function TimesheetForm() {
             />
           </div>
           <div style={S.formGroup}>
+            <label style={S.formLabel} htmlFor="select-term">Select Term</label>
+            <select
+              id="select-term"
+              value={term}
+              onChange={e => {
+                setTerm(e.target.value);
+                persist({ term: e.target.value });
+              }}
+              style={S.metaInput}
+            >
+              <option value="Summer">Summer</option>
+              <option value="Fall">Fall</option>
+              <option value="Spring">Spring</option>
+            </select>
+          </div>
+          <div style={S.formGroup}>
             <label style={S.formLabel}>Department</label>
             <input type="text" value="Success Center" disabled style={S.metaInputDisabled} />
           </div>
@@ -571,7 +715,7 @@ export default function TimesheetForm() {
 
         {/* Period total */}
         <div style={S.periodTotal} className="totalBar">
-          <span style={S.totalLabel}>Total Hours This Reporting Period</span>
+          <span style={S.totalLabel}>Total Hours Overall</span>
           <span style={S.totalValue}>{periodTotal.toFixed(2)} hrs</span>
         </div>
 
@@ -662,8 +806,13 @@ export default function TimesheetForm() {
 
         {/* Actions */}
         <div style={S.actionsBar} className="no-print">
-          <button type="button" onClick={handleClear} style={S.clearBtn}>Reset Form</button>
+          <button type="button" onClick={handleClearDraft} style={S.clearBtn}>
+            <Trash2 size={15} style={{ marginRight: 6 }} /> Clear Draft
+          </button>
           <div style={S.mainActions}>
+            <button type="button" onClick={handleSaveDraft} style={S.saveDraftBtn}>
+              <Save size={15} style={{ marginRight: 6 }} /> Save Draft
+            </button>
             <button type="button" onClick={() => window.print()} style={S.printBtn}>
               <Printer size={15} style={{ marginRight: 6 }} /> Print Form
             </button>
@@ -1082,10 +1231,22 @@ const S = {
     borderTop: '1px solid #e5e7eb', paddingTop: 20
   },
   clearBtn: {
+    display: 'flex',
+    alignItems: 'center',
     padding: '9px 16px', backgroundColor: '#fff',
     border: '1px solid #e5e7eb', borderRadius: 5,
     fontSize: 13, fontWeight: 500,
     color: '#6b7280', cursor: 'pointer',
+    fontFamily: "'Inter', sans-serif"
+  },
+  saveDraftBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 16px',
+    backgroundColor: '#fff',
+    border: '1px solid #7da7c4',
+    borderRadius: 5, fontSize: 13, fontWeight: 600,
+    color: '#0f4c75', cursor: 'pointer',
     fontFamily: "'Inter', sans-serif"
   },
   mainActions: { display: 'flex', gap: 10, flexWrap: 'wrap' },

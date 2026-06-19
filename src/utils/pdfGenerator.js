@@ -10,6 +10,20 @@ const fmtDate = (dateStr) => {
   return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 };
 
+const formatTimeForPdf = (timeStr, term) => {
+  if (!timeStr) return '—';
+  if (term === 'Fall' || term === 'Spring') {
+    const [hStr, mStr] = timeStr.split(':');
+    let h = parseInt(hStr, 10);
+    if (isNaN(h)) return timeStr;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${mStr} ${ampm}`;
+  }
+  return timeStr;
+};
+
 const addDays = (dateStr, n) => {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
@@ -56,7 +70,7 @@ const tableHeader = `
       <th style="padding:6px; text-align:center; border-right:1px solid #000; width:58px;">S1 OUT</th>
       <th style="padding:6px; text-align:center; border-right:1px solid #000; width:58px;">S2 IN</th>
       <th style="padding:6px; text-align:center; border-right:1px solid #000; width:58px;">S2 OUT</th>
-      <th style="padding:6px; text-align:center; border-right:1px solid #000; width:50px;">DAILY</th>
+      <th style="padding:6px; text-align:center; border-right:1px solid #000; width:65px;">HOURS WORKED</th>
       <th style="padding:6px; text-align:left; border-right:1px solid #000; width:130px;">STUDENT</th>
       <th style="padding:6px; text-align:left; border-right:1px solid #000; width:170px;">SUBJECT / TOPIC</th>
       <th style="padding:6px; text-align:left;">PROGRESS NOTES</th>
@@ -66,7 +80,7 @@ const tableHeader = `
 
 // ─── Row generator ────────────────────────────────────────────────────────────
 
-const buildRows = (entries, startDate) =>
+const buildRows = (entries, startDate, term) =>
   entries.map((e, idx) => {
     const rowDate = e.date || (startDate ? addDays(startDate, idx) : '');
     return `
@@ -74,10 +88,10 @@ const buildRows = (entries, startDate) =>
         <td style="padding:5px; border-right:1px solid #000; font-weight:bold; white-space:nowrap;">
           ${fmtDate(rowDate)}
         </td>
-        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${e.timeIn1 || '—'}</td>
-        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${e.timeOut1 || '—'}</td>
-        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${e.timeIn2 || '—'}</td>
-        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${e.timeOut2 || '—'}</td>
+        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${formatTimeForPdf(e.timeIn1, term)}</td>
+        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${formatTimeForPdf(e.timeOut1, term)}</td>
+        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${formatTimeForPdf(e.timeIn2, term)}</td>
+        <td style="padding:5px; text-align:center; border-right:1px solid #000;">${formatTimeForPdf(e.timeOut2, term)}</td>
         <td style="padding:5px; text-align:center; border-right:1px solid #000; font-weight:bold;">
           ${Number(e.totalHours || 0).toFixed(2)}
         </td>
@@ -96,8 +110,8 @@ const buildRows = (entries, startDate) =>
 
 // ─── Week HTML block ──────────────────────────────────────────────────────────
 
-const buildWeekBlock = (week, weekTotal) => {
-  const rows = buildRows(week.entries, week.startDate);
+const buildWeekBlock = (week, weekTotal, term) => {
+  const rows = buildRows(week.entries, week.startDate, term);
   return `
     <div style="font-size:11px; font-weight:bold; margin-bottom:4px; text-transform:uppercase;">
       WEEK ${week.weekNum} WORK DETAILS
@@ -114,7 +128,7 @@ const buildWeekBlock = (week, weekTotal) => {
         <tfoot>
           <tr style="border-top:2px solid #000; font-size:11px; font-weight:bold; background:#fafafa;">
             <td colspan="5" style="padding:6px; text-align:right; border-right:1px solid #000;">
-              WEEK ${week.weekNum} TOTAL HOURS:
+              TOTAL HOURS THIS WEEK:
             </td>
             <td style="padding:6px; text-align:center; border-right:1px solid #000; font-size:12px;">
               ${Number(weekTotal || 0).toFixed(2)}
@@ -202,7 +216,7 @@ export const generatePDF = async (type, data, fileName) => {
 
   // Build all week blocks
   const weeksHtml = (data.weeks || []).map((week, idx) =>
-    buildWeekBlock(week, (data.weekTotals || [])[idx] || 0)
+    buildWeekBlock(week, (data.weekTotals || [])[idx] || 0, data.term)
   ).join('');
 
   container.innerHTML = `
@@ -237,11 +251,22 @@ export const generatePDF = async (type, data, fileName) => {
       <table style="width:100%; border-collapse:collapse; font-size:11px;">
         <tr>
           <td style="padding:8px; width:50%; border-right:1px solid #000;">
-            <strong>EMPLOYEE NAME:</strong><br/>
-            <span style="font-size:12px; font-family:sans-serif;
-                         text-transform:uppercase; font-weight:bold;">
-              ${data.employeeName || '—'}
-            </span>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <strong>EMPLOYEE NAME:</strong><br/>
+                <span style="font-size:12px; font-family:sans-serif;
+                             text-transform:uppercase; font-weight:bold;">
+                  ${data.employeeName || '—'}
+                </span>
+              </div>
+              <div style="text-align:right; padding-right:12px;">
+                <strong>TERM:</strong><br/>
+                <span style="font-size:12px; font-family:sans-serif;
+                             text-transform:uppercase; font-weight:bold;">
+                  ${data.term || 'Summer'}
+                </span>
+              </div>
+            </div>
           </td>
           <td style="padding:8px;">
             <strong>REPORTING PERIOD WEEKS:</strong><br/>
@@ -262,7 +287,7 @@ export const generatePDF = async (type, data, fileName) => {
     <div style="border:2px solid #000; background:#fff; padding:10px; margin-bottom:22px;
                 display:flex; justify-content:space-between; align-items:center;
                 font-weight:bold; font-size:12px;">
-      <span style="text-transform:uppercase;">TOTAL HOURS WORKED THIS PERIOD:</span>
+      <span style="text-transform:uppercase;">TOTAL HOURS OVERALL:</span>
       <span style="font-size:14px; border-bottom:3px double #000; padding:0 4px;">
         ${Number(data.periodTotal || 0).toFixed(2)} HOURS
       </span>
